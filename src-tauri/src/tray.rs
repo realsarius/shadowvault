@@ -7,25 +7,21 @@ use tauri::{
     AppHandle, Emitter, Manager,
 };
 
-static ICON_NORMAL_RGBA: &[u8] = include_bytes!("../icons/tray_normal.rgba");
-static ICON_PAUSED_RGBA: &[u8] = include_bytes!("../icons/tray_paused.rgba");
-static ICON_ERROR_RGBA:  &[u8] = include_bytes!("../icons/tray_error.rgba");
+use crate::icons_gen::make_tray_rgba;
 
 static TRAY_ID: OnceLock<TrayIconId> = OnceLock::new();
 
-fn make_icon(rgba: &'static [u8]) -> tauri::image::Image<'static> {
-    tauri::image::Image::new(rgba, 32, 32)
+fn make_icon(state: &str) -> tauri::image::Image<'static> {
+    let rgba = make_tray_rgba(state);
+    // Vec<u8>'i 'static ömürlü hale getiriyoruz (tray ömrü boyunca geçerli)
+    let leaked: &'static [u8] = Box::leak(rgba.into_boxed_slice());
+    tauri::image::Image::new(leaked, 32, 32)
 }
 
 pub fn set_tray_state(app: &AppHandle, state: &str) {
     let Some(id) = TRAY_ID.get() else { return };
     let Some(tray) = app.tray_by_id(id) else { return };
-    let rgba = match state {
-        "paused" => ICON_PAUSED_RGBA,
-        "error"  => ICON_ERROR_RGBA,
-        _        => ICON_NORMAL_RGBA,
-    };
-    let _ = tray.set_icon(Some(make_icon(rgba)));
+    let _ = tray.set_icon(Some(make_icon(state)));
     let tooltip = match state {
         "paused" => "ShadowVault (Duraklatıldı)",
         "error"  => "ShadowVault (Hata)",
@@ -34,7 +30,7 @@ pub fn set_tray_state(app: &AppHandle, state: &str) {
     let _ = tray.set_tooltip(Some(tooltip));
 }
 
-async fn graceful_shutdown(app: &AppHandle) {
+pub async fn graceful_shutdown(app: &AppHandle) {
     use std::time::{Duration, Instant};
 
     if let Some(state) = app.try_state::<crate::AppState>() {
@@ -84,15 +80,16 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let pause = MenuItem::with_id(app, "pause", "Duraklet", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let show = MenuItem::with_id(app, "show", "Pencereyi Göster", true, None::<&str>)?;
+    let about = MenuItem::with_id(app, "about", "Hakkında ShadowVault", true, None::<&str>)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Çıkış", true, None::<&str>)?;
 
     let menu = Menu::with_items(app, &[
-        &status, &sep1, &run_all, &pause, &sep2, &show, &sep3, &quit,
+        &status, &sep1, &run_all, &pause, &sep2, &show, &about, &sep3, &quit,
     ])?;
 
     let tray = TrayIconBuilder::new()
-        .icon(make_icon(ICON_NORMAL_RGBA))
+        .icon(make_icon("normal"))
         .menu(&menu)
         .tooltip("ShadowVault")
         .on_menu_event(move |app: &AppHandle, event: tauri::menu::MenuEvent| match event.id.as_ref() {
@@ -173,6 +170,13 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                     let _ = window.show();
                     let _ = window.set_focus();
                 }
+            }
+            "about" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+                let _ = app.emit("show-about", ());
             }
             "quit" => {
                 let app_clone = app.clone();

@@ -1,14 +1,58 @@
-import { createEffect, onMount, Switch, Match } from "solid-js";
+import { createEffect, createSignal, onMount, onCleanup, Switch, Match } from "solid-js";
+import { listen } from "@tauri-apps/api/event";
+import { api } from "./api/tauri";
 import { Layout } from "./components/layout/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { Sources } from "./pages/Sources";
 import { Logs } from "./pages/Logs";
 import { Settings } from "./pages/Settings";
-import { store, initStore } from "./store";
+import { LicensePage } from "./pages/LicensePage";
+import { AboutModal } from "./components/ui/AboutModal";
+import { store, setStore, initStore, initLicense } from "./store";
 import "./styles/globals.css";
 
 export function App() {
-  onMount(() => initStore());
+  const [showAbout, setShowAbout] = createSignal(false);
+
+  onMount(async () => {
+    initStore();
+    initLicense();
+
+    const unlisteners = await Promise.all([
+      // About modal
+      listen("show-about", () => setShowAbout(true)),
+
+      // Navigation from native menu
+      listen<string>("menu-navigate", (e) => {
+        setStore("activePage", e.payload as any);
+      }),
+
+      // Sidebar toggle from native menu (Cmd+\)
+      listen("menu-toggle-sidebar", () => {
+        setStore("sidebarCollapsed", !store.sidebarCollapsed);
+      }),
+
+      // Run all sources from native menu (Cmd+Shift+R)
+      listen("menu-run-all", async () => {
+        for (const src of store.sources) {
+          api.jobs.runSourceNow(src.id).catch(() => {});
+        }
+      }),
+
+      // Open buy URL from About section in native menu
+      listen("menu-open-buy-url", async () => {
+        const url = "https://berkansozer.lemonsqueezy.com/buy/shadowvault-pro";
+        try {
+          const { open } = await import("@tauri-apps/plugin-shell");
+          await open(url);
+        } catch {
+          window.open(url, "_blank");
+        }
+      }),
+    ]);
+
+    onCleanup(() => unlisteners.forEach((fn) => fn()));
+  });
 
   createEffect(() => {
     const theme = store.settings?.theme ?? "dark";
@@ -22,13 +66,17 @@ export function App() {
   });
 
   return (
-    <Layout>
-      <Switch>
-        <Match when={store.activePage === "dashboard"}><Dashboard /></Match>
-        <Match when={store.activePage === "sources"}><Sources /></Match>
-        <Match when={store.activePage === "logs"}><Logs /></Match>
-        <Match when={store.activePage === "settings"}><Settings /></Match>
-      </Switch>
-    </Layout>
+    <>
+      <Layout>
+        <Switch>
+          <Match when={store.activePage === "dashboard"}><Dashboard /></Match>
+          <Match when={store.activePage === "sources"}><Sources /></Match>
+          <Match when={store.activePage === "logs"}><Logs /></Match>
+          <Match when={store.activePage === "settings"}><Settings /></Match>
+          <Match when={store.activePage === "license"}><LicensePage /></Match>
+        </Switch>
+      </Layout>
+      <AboutModal open={showAbout()} onClose={() => setShowAbout(false)} />
+    </>
   );
 }

@@ -10,6 +10,8 @@ pub mod db;
 pub mod commands;
 pub mod engine;
 pub mod tray;
+pub mod icons_gen;
+pub mod menu;
 
 use engine::scheduler::Scheduler;
 use engine::watcher::FileWatcher;
@@ -42,30 +44,37 @@ pub fn run() {
                 log::warn!("Failed to setup system tray: {}", e);
             }
 
+            // Register menu event handler once — persists for the app lifetime
+            let ah_menu = app_handle.clone();
+            app.on_menu_event(move |_app, event| {
+                menu::handle_menu_event(&ah_menu, event.id().as_ref());
+            });
+
+            // Build initial menu (language resolved async after DB loads)
+            if let Ok(m) = menu::build_menu(&app_handle, "tr") {
+                let _ = app.set_menu(m);
+            }
+
             tauri::async_runtime::spawn(async move {
-                // Determine database path
-                let db_path = if let Ok(override_path) = std::env::var("SHADOWVAULT_DB_PATH") {
-                    override_path
+                let db_path = if let Ok(p) = std::env::var("SHADOWVAULT_DB_PATH") {
+                    p
                 } else {
                     match app_handle.path().app_data_dir() {
                         Ok(data_dir) => {
                             if let Err(e) = std::fs::create_dir_all(&data_dir) {
-                                log::warn!(
-                                    "Failed to create app data dir: {}, falling back to current dir",
-                                    e
-                                );
-                                let cwd = std::env::current_dir()
-                                    .unwrap_or_else(|_| std::path::PathBuf::from("."));
-                                cwd.join("shadowvault.db").to_string_lossy().to_string()
+                                log::warn!("Failed to create app data dir: {}", e);
+                                std::env::current_dir()
+                                    .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                                    .join("shadowvault.db").to_string_lossy().to_string()
                             } else {
                                 data_dir.join("shadowvault.db").to_string_lossy().to_string()
                             }
                         }
                         Err(e) => {
-                            log::warn!("Could not resolve app data dir: {}, using current dir", e);
-                            let cwd = std::env::current_dir()
-                                .unwrap_or_else(|_| std::path::PathBuf::from("."));
-                            cwd.join("shadowvault.db").to_string_lossy().to_string()
+                            log::warn!("Could not resolve app data dir: {}", e);
+                            std::env::current_dir()
+                                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                                .join("shadowvault.db").to_string_lossy().to_string()
                         }
                     }
                 };
@@ -74,11 +83,17 @@ pub fn run() {
 
                 let pool = match db::init_db(&db_path).await {
                     Ok(p) => Arc::new(p),
-                    Err(e) => {
-                        log::error!("Failed to initialize database: {}", e);
-                        return;
-                    }
+                    Err(e) => { log::error!("Failed to initialize database: {}", e); return; }
                 };
+
+                // Rebuild menu with the stored language once DB is ready
+                let lang = db::queries::get_setting(&pool, "language").await
+                    .ok().flatten().unwrap_or_else(|| "tr".to_string());
+                if lang != "tr" {
+                    if let Ok(m) = menu::build_menu(&app_handle, &lang) {
+                        let _ = app_handle.set_menu(m);
+                    }
+                }
 
                 let running_jobs: Arc<DashMap<String, tokio::task::AbortHandle>> =
                     Arc::new(DashMap::new());
@@ -86,41 +101,22 @@ pub fn run() {
                 let scheduler = Arc::new(Mutex::new(Scheduler::new()));
                 let watcher = Arc::new(Mutex::new(FileWatcher::new()));
 
-                // Load minimize_to_tray setting; default true
                 let minimize_to_tray = Arc::new(AtomicBool::new(true));
                 if let Ok(Some(val)) = db::queries::get_setting(&pool, "minimize_to_tray").await {
                     minimize_to_tray.store(val == "true", Ordering::SeqCst);
                 }
 
-                // Start scheduler
                 {
                     let mut sched = scheduler.lock().await;
-                    sched
-                        .reload_all(
-                            pool.clone(),
-                            running_jobs.clone(),
-                            app_handle.clone(),
-                            paused.clone(),
-                        )
-                        .await;
+                    sched.reload_all(pool.clone(), running_jobs.clone(), app_handle.clone(), paused.clone()).await;
                 }
 
-                // Start file watcher for OnChange destinations
                 {
                     let mut w = watcher.lock().await;
                     w.start(pool.clone(), running_jobs.clone(), app_handle.clone()).await;
                 }
 
-                let app_state = AppState {
-                    db: pool,
-                    scheduler,
-                    watcher,
-                    running_jobs,
-                    paused,
-                    minimize_to_tray,
-                };
-
-                app_handle.manage(app_state);
+                app_handle.manage(AppState { db: pool, scheduler, watcher, running_jobs, paused, minimize_to_tray });
             });
 
             Ok(())
@@ -132,7 +128,6 @@ pub fn run() {
                     .try_state::<AppState>()
                     .map(|s| s.minimize_to_tray.load(Ordering::SeqCst))
                     .unwrap_or(true);
-
                 if should_minimize {
                     api.prevent_close();
                     let _ = window.hide();
@@ -162,7 +157,19 @@ pub fn run() {
             commands::fs::get_disk_info,
             commands::updater::check_update,
             commands::updater::install_update,
+            commands::license::get_hardware_id,
+            commands::license::store_license,
+            commands::license::get_stored_license,
+            commands::license::clear_license,
+            rebuild_app_menu,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Called from frontend after a language change so the menu reflects the new locale.
+#[tauri::command]
+async fn rebuild_app_menu(app: tauri::AppHandle, lang: String) -> Result<(), String> {
+    let m = menu::build_menu(&app, &lang).map_err(|e| e.to_string())?;
+    app.set_menu(m).map(|_| ()).map_err(|e| e.to_string())
 }
