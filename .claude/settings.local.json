@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm --version)",
+      "Bash(cargo --version)",
+      "Bash(rustc --version)",
+      "Bash(source ~/.zshrc)",
+      "Bash(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs)",
+      "Bash(sh -s -- -y)",
+      "Bash(source \"$HOME/.cargo/env\")",
+      "Bash(cargo install:*)",
+      "Bash(export PATH=\"$HOME/.cargo/bin:$PATH\")",
+      "Bash(export PATH=\"$HOME/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH\")",
+      "Bash(/Users/berkansozer/.cargo/bin/cargo --version)",
+      "Bash(/Users/berkansozer/.cargo/bin/rustc --version)",
+      "Bash(/Users/berkansozer/.nvm/versions/node/v24.13.0/bin/npm install:*)",
+      "Bash(/Users/berkansozer/.cargo/bin/cargo check:*)",
+      "Bash(python3 -c \":*)",
+      "Bash(/Users/berkansozer/.nvm/versions/node/v24.13.0/bin/npx tsc:*)",
+      "Bash(cargo check:*)",
+      "Bash($HOME/.cargo/bin/cargo check:*)",
+      "Read(//usr/local/bin/**)",
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//usr/**)",
+      "Read(//Users/berkansozer/Library/Developer/**)",
+      "Bash(echo $SHELL)",
+      "Bash(/Users/berkansozer/.cargo/bin/cargo test:*)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}

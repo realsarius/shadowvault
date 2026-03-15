@@ -48,7 +48,18 @@ pub async fn run_now(
     let dest_id_clone = destination_id.clone();
     let app_handle_clone = app_handle.clone();
 
+    let src_path = source.path.clone();
+    let dst_path = dest.path.clone();
+    let dest_id_start = destination_id.clone();
+    let app_handle_start = app_handle.clone();
+
     let job_handle = tokio::task::spawn(async move {
+        let _ = app_handle_start.emit("copy-started", serde_json::json!({
+            "destination_id": dest_id_start,
+            "source_path": src_path,
+            "destination_path": dst_path,
+        }));
+
         let job = CopyJob {
             source,
             destination: dest,
@@ -114,7 +125,18 @@ pub async fn run_source_now(
         let dest_id_clone = dest_id.clone();
         let app_handle_clone = app_handle.clone();
 
+        let src_path2 = source_clone.path.clone();
+        let dst_path2 = dest.path.clone();
+        let dest_id_start2 = dest_id_clone.clone();
+        let app_handle_start2 = app_handle_clone.clone();
+
         let job_handle = tokio::task::spawn(async move {
+            let _ = app_handle_start2.emit("copy-started", serde_json::json!({
+                "destination_id": dest_id_start2,
+                "source_path": src_path2,
+                "destination_path": dst_path2,
+            }));
+
             let job = CopyJob {
                 source: source_clone,
                 destination: dest,
@@ -148,14 +170,14 @@ pub async fn run_source_now(
 }
 
 #[tauri::command]
-pub async fn pause_all(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn pause_all(state: State<'_, AppState>, app_handle: AppHandle) -> Result<(), String> {
     use std::sync::atomic::Ordering;
     state.paused.store(true, Ordering::SeqCst);
 
-    // Cancel all scheduled tasks (they will check the paused flag, but we cancel too)
     let mut scheduler = state.scheduler.lock().await;
     scheduler.cancel_all();
 
+    crate::tray::set_tray_state(&app_handle, "paused");
     log::info!("All scheduled jobs paused");
     Ok(())
 }
@@ -175,9 +197,10 @@ pub async fn resume_all(
 
     let mut scheduler = state.scheduler.lock().await;
     scheduler
-        .reload_all(db, running_jobs, app_handle, paused)
+        .reload_all(db, running_jobs, app_handle.clone(), paused)
         .await;
 
+    crate::tray::set_tray_state(&app_handle, "normal");
     log::info!("All scheduled jobs resumed");
     Ok(())
 }

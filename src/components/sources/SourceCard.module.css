@@ -10,6 +10,12 @@
   gap: 4px;
   text-align: left;
   transition: background 0.15s, border-color 0.15s;
+  animation: slideInLeft 180ms ease-out;
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
 }
 
 .card:hover {

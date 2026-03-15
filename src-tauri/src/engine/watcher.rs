@@ -79,6 +79,13 @@ impl FileWatcher {
 
         for path in path_map.keys() {
             if let Err(e) = watcher.watch(Path::new(path), RecursiveMode::Recursive) {
+                let err_str = e.to_string();
+                if err_str.contains("inotify") || err_str.contains("No space left") || err_str.contains("too many") {
+                    log::warn!("inotify limit may be reached: {}", err_str);
+                    let _ = app_handle.emit("watcher-warning", serde_json::json!({
+                        "message": "Linux inotify izleyici limiti aşıldı. Artırmak için: sudo sysctl -w fs.inotify.max_user_watches=524288"
+                    }));
+                }
                 log::warn!("Failed to watch path {}: {}", path, e);
             } else {
                 log::info!("Watching path for changes: {}", path);
@@ -135,7 +142,18 @@ impl FileWatcher {
                         let dest_id = dest.id.clone();
                         let dest_id_inner = dest.id.clone();
 
+                        let watch_src_path = source_clone.path.clone();
+                        let watch_dst_path = dest_clone.path.clone();
+                        let watch_dest_id_start = dest_id_inner.clone();
+                        let watch_ah_start = app_handle_clone.clone();
+
                         let job_handle = tokio::task::spawn(async move {
+                            let _ = watch_ah_start.emit("copy-started", serde_json::json!({
+                                "destination_id": watch_dest_id_start,
+                                "source_path": watch_src_path,
+                                "destination_path": watch_dst_path,
+                            }));
+
                             let job = CopyJob {
                                 source: source_clone,
                                 destination: dest_clone,
@@ -155,6 +173,7 @@ impl FileWatcher {
                                         dest_id_inner,
                                         e
                                     );
+                                    crate::tray::set_tray_state(&app_handle_clone, "error");
                                     let payload = serde_json::json!({
                                         "destination_id": dest_id_inner,
                                         "error": e.to_string()

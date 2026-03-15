@@ -12,6 +12,7 @@ interface AppStore {
   isLoading: boolean;
   activeSourceId: string | null;
   activePage: "dashboard" | "sources" | "logs" | "settings";
+  watcherWarning: string | null;
 }
 
 const [store, setStore] = createStore<AppStore>({
@@ -23,6 +24,7 @@ const [store, setStore] = createStore<AppStore>({
   isLoading: false,
   activeSourceId: null,
   activePage: "dashboard",
+  watcherWarning: null,
 });
 
 export async function refreshSources() {
@@ -73,6 +75,10 @@ listen<{ destination_id: string }>("copy-error", (event) => {
 
 listen<{ paused: boolean }>("scheduler-status", (event) => {
   setStore("isSchedulerPaused", event.payload.paused);
+});
+
+listen<{ message: string }>("watcher-warning", (event) => {
+  setStore("watcherWarning", event.payload.message);
 });
 
 export { store, setStore };
