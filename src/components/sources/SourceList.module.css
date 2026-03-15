@@ -48,3 +48,22 @@
 .itemWrapper {
   margin-bottom: 4px;
 }
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.limitCounter {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.limitReached {
+  font-size: 11px;
+  color: var(--yellow);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

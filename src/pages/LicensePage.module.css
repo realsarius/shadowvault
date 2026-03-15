@@ -1,0 +1,339 @@
+.root {
+  max-width: 820px;
+}
+
+.pageHeader {
+  margin-bottom: 20px;
+}
+
+.pageTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pageSubtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* Plan kartı */
+.planCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  transition: border-color 150ms;
+}
+
+.planCard[data-pro="true"] {
+  border-color: var(--accent);
+  background: linear-gradient(135deg, var(--bg-surface) 60%, rgba(74, 124, 255, 0.06));
+}
+
+.planLeft {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.planBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  width: fit-content;
+}
+
+.planBadge[data-pro="true"] {
+  background: rgba(74, 124, 255, 0.15);
+  color: var(--accent);
+}
+
+.planName {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.planDesc {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.planRight {
+  color: var(--accent);
+  opacity: 0.6;
+}
+
+/* Kullanım çubuğu */
+.usageCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.usageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.usageLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.usageCount {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.usageBar {
+  height: 5px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.usageFill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 300ms ease, background 150ms;
+}
+
+.usageFill[data-full="true"] {
+  background: var(--yellow);
+}
+
+.usageHint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Kolonlar */
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Section */
+.section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  flex: 1;
+}
+
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Feature list */
+.featureList {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 20px;
+}
+
+.featureRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.featureCheck {
+  color: var(--green);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* Buy button */
+.buyBtn {
+  width: 100%;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 11px 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  transition: background 120ms;
+}
+
+.buyBtn:hover {
+  background: var(--accent-hover);
+}
+
+/* Activation */
+.activationHint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.fieldLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.keyInput {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 14px;
+  letter-spacing: 1px;
+  padding: 9px 12px;
+  outline: none;
+  transition: border-color 120ms;
+}
+
+.keyInput:focus {
+  border-color: var(--border-focus);
+}
+
+.keyInput::placeholder {
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+}
+
+.errorMsg {
+  background: rgba(255, 77, 77, 0.08);
+  border: 1px solid rgba(255, 77, 77, 0.25);
+  border-radius: var(--radius-sm);
+  color: var(--red);
+  font-size: 12px;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+}
+
+.successMsg {
+  background: rgba(61, 214, 140, 0.08);
+  border: 1px solid rgba(61, 214, 140, 0.25);
+  border-radius: var(--radius-sm);
+  color: var(--green);
+  font-size: 12px;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+}
+
+.activateBtn {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 0;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+  margin-bottom: 14px;
+}
+
+.activateBtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+
+.activateBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.activatedMsg {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: rgba(61, 214, 140, 0.08);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(61, 214, 140, 0.2);
+}
+
+/* Hardware ID */
+.hwBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.hwLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.hwValue {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
