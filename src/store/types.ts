@@ -1,6 +1,6 @@
 export type SourceType = "File" | "Directory";
 
-export type DestinationType = "Local" | "S3" | "R2" | "Sftp";
+export type DestinationType = "Local" | "S3" | "R2" | "Sftp" | "OneDrive" | "GoogleDrive";
 
 export interface S3Config {
   provider: "S3" | "R2";
@@ -10,6 +10,15 @@ export interface S3Config {
   secret_access_key: string;
   endpoint_url?: string;
   prefix: string;
+}
+
+export interface OAuthConfig {
+  provider: "onedrive" | "gdrive";
+  client_id: string;
+  access_token: string;
+  refresh_token: string;
+  expires_at: number;
+  folder_path: string;
 }
 
 export interface SftpConfig {
@@ -50,6 +59,7 @@ export interface Destination {
   destination_type: DestinationType;
   cloud_config: S3Config | null;
   sftp_config: SftpConfig | null;
+  oauth_config: OAuthConfig | null;
 }
 
 export interface Source {

@@ -7,7 +7,7 @@ import { Toggle } from "../ui/Toggle";
 import { SchedulePicker } from "../schedule/SchedulePicker";
 import { t } from "../../i18n";
 import { api } from "../../api/tauri";
-import type { ScheduleType, RetentionPolicy, Destination, DestinationType, S3Config, SftpConfig } from "../../store/types";
+import type { ScheduleType, RetentionPolicy, Destination, DestinationType, S3Config, SftpConfig, OAuthConfig } from "../../store/types";
 import styles from "./AddDestinationModal.module.css";
 
 interface Props {
@@ -33,7 +33,7 @@ export function EditDestinationModal(props: Props) {
   const [availBytes, setAvailBytes] = createSignal<number | null>(null);
 
   // Cloud fields
-  const [cloudProvider, setCloudProvider] = createSignal<"S3" | "R2" | "Sftp">("S3");
+  const [cloudProvider, setCloudProvider] = createSignal<"S3" | "R2" | "Sftp" | "OAuth">("S3");
   const [bucket, setBucket] = createSignal("");
   const [region, setRegion] = createSignal("us-east-1");
   const [accessKeyId, setAccessKeyId] = createSignal("");
@@ -48,6 +48,13 @@ export function EditDestinationModal(props: Props) {
   const [sftpPassword, setSftpPassword] = createSignal("");
   const [sftpKeyPath, setSftpKeyPath] = createSignal("");
   const [sftpRemotePath, setSftpRemotePath] = createSignal("/");
+  // OAuth fields
+  const [oauthProvider, setOauthProvider] = createSignal<"onedrive" | "gdrive">("onedrive");
+  const [oauthClientId, setOauthClientId] = createSignal("");
+  const [oauthFolderPath, setOauthFolderPath] = createSignal("/ShadowVault");
+  const [oauthConfig, setOauthConfig] = createSignal<OAuthConfig | null>(null);
+  const [oauthStatus, setOauthStatus] = createSignal<"idle" | "waiting" | "done" | "error">("idle");
+  const [oauthError, setOauthError] = createSignal("");
   const [testing, setTesting] = createSignal(false);
 
   // Common fields
@@ -86,6 +93,15 @@ export function EditDestinationModal(props: Props) {
         setSftpPassword(s.password ?? "");
         setSftpKeyPath(s.private_key ?? "");
         setSftpRemotePath(s.remote_path);
+      } else if ((dt === "OneDrive" || dt === "GoogleDrive") && d.oauth_config) {
+        const o = d.oauth_config;
+        setCloudProvider("OAuth");
+        setOauthProvider(o.provider);
+        setOauthClientId(o.client_id);
+        setOauthFolderPath(o.folder_path);
+        setOauthConfig(o);
+        setOauthStatus("done");
+        setOauthError("");
       } else if (d.cloud_config) {
         const c = d.cloud_config;
         setCloudProvider(c.provider as "S3" | "R2");
@@ -195,6 +211,15 @@ export function EditDestinationModal(props: Props) {
           props.destination!.id, displayPath, schedule(), retention(),
           props.destination!.enabled, exclusions, incremental(), "Sftp", null, sftpConfig,
         );
+      } else if (destType() === "OneDrive" || destType() === "GoogleDrive") {
+        const cfg = oauthConfig();
+        if (!cfg) { toast.error(t("oauth_not_connected")); setSaving(false); return; }
+        const updated: OAuthConfig = { ...cfg, folder_path: oauthFolderPath().trim() || "/ShadowVault" };
+        const displayPath = `${destType().toLowerCase()}:/${updated.folder_path}`;
+        await api.destinations.update(
+          props.destination!.id, displayPath, schedule(), retention(),
+          props.destination!.enabled, exclusions, incremental(), destType(), null, null, updated,
+        );
       } else {
         const prov = cloudProvider() as "S3" | "R2";
         if (!bucket().trim()) { toast.error(t("cloud_bucket_required")); setSaving(false); return; }
@@ -261,6 +286,13 @@ export function EditDestinationModal(props: Props) {
           onClick={() => { setDestType("Sftp"); setCloudProvider("Sftp"); }}
         >
           {t("dest_type_sftp")}
+        </button>
+        <button
+          class={styles.typeTab}
+          data-active={String(destType() === "OneDrive" || destType() === "GoogleDrive")}
+          onClick={() => { setDestType(oauthProvider() === "gdrive" ? "GoogleDrive" : "OneDrive"); setCloudProvider("OAuth"); }}
+        >
+          {t("dest_type_oauth")}
         </button>
       </div>
 
@@ -412,6 +444,95 @@ export function EditDestinationModal(props: Props) {
           <Button variant="ghost" size="sm" onClick={handleTestConnection} disabled={testing()}>
             {testing() ? t("cloud_testing") : t("cloud_test_btn")}
           </Button>
+        </div>
+      </Show>
+
+      {/* OAuth fields (OneDrive / Google Drive) */}
+      <Show when={destType() === "OneDrive" || destType() === "GoogleDrive"}>
+        <div class={styles.field}>
+          <label class={styles.label}>{t("oauth_provider")}</label>
+          <select
+            class={styles.input}
+            value={oauthProvider()}
+            onChange={(e) => {
+              const v = e.currentTarget.value as "onedrive" | "gdrive";
+              setOauthProvider(v);
+              setDestType(v === "gdrive" ? "GoogleDrive" : "OneDrive");
+              setOauthConfig(null);
+              setOauthStatus("idle");
+            }}
+          >
+            <option value="onedrive">Microsoft OneDrive</option>
+            <option value="gdrive">Google Drive</option>
+          </select>
+        </div>
+
+        <div class={styles.field}>
+          <label class={styles.label}>{t("oauth_client_id")}</label>
+          <input class={styles.input} type="text" placeholder={t("oauth_client_id_ph")}
+            value={oauthClientId()} onInput={e => { setOauthClientId(e.currentTarget.value); setOauthConfig(null); setOauthStatus("idle"); }} />
+          <div class={styles.hint}>{t("oauth_client_id_hint")}</div>
+        </div>
+
+        <div class={styles.field}>
+          <label class={styles.label}>{t("oauth_folder_path")}</label>
+          <input class={styles.input} type="text" placeholder="/ShadowVault"
+            value={oauthFolderPath()} onInput={e => setOauthFolderPath(e.currentTarget.value)} />
+        </div>
+
+        <div class={styles.field}>
+          <Show when={oauthStatus() !== "done"}>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={oauthStatus() === "waiting" || !oauthClientId().trim()}
+              onClick={async () => {
+                if (!oauthClientId().trim()) { toast.error(t("oauth_client_id_required")); return; }
+                setOauthStatus("waiting");
+                setOauthError("");
+                try {
+                  const cfg = await api.oauth.runFlow(
+                    oauthProvider(),
+                    oauthClientId().trim(),
+                    oauthFolderPath().trim() || "/ShadowVault",
+                  );
+                  setOauthConfig(cfg);
+                  setOauthStatus("done");
+                  toast.success(t("oauth_connected_ok"));
+                } catch (e: any) {
+                  setOauthStatus("error");
+                  setOauthError(e?.message ?? t("oauth_connect_err"));
+                  toast.error(e?.message ?? t("oauth_connect_err"));
+                }
+              }}
+            >
+              {oauthStatus() === "waiting" ? t("oauth_waiting") : t("oauth_connect_btn")}
+            </Button>
+          </Show>
+          <Show when={oauthStatus() === "done"}>
+            <div style={{ display: "flex", gap: "8px", "align-items": "center" }}>
+              <span style={{ color: "var(--color-success, #4ade80)", "font-size": "0.85rem" }}>✓ {t("oauth_connected_ok")}</span>
+              <Button variant="ghost" size="sm" disabled={testing()} onClick={async () => {
+                const cfg = oauthConfig();
+                if (!cfg) return;
+                setTesting(true);
+                try {
+                  await api.oauth.testConnection(cfg);
+                  toast.success(t("cloud_connection_ok"));
+                } catch (e: any) {
+                  toast.error(e?.message ?? t("cloud_connection_err"));
+                } finally { setTesting(false); }
+              }}>
+                {testing() ? t("cloud_testing") : t("cloud_test_btn")}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => { setOauthConfig(null); setOauthStatus("idle"); setOauthError(""); }}>
+                {t("oauth_connect_btn")}
+              </Button>
+            </div>
+          </Show>
+          <Show when={oauthStatus() === "error" && oauthError()}>
+            <div class={styles.hint} style={{ color: "var(--color-error, #f87171)" }}>{oauthError()}</div>
+          </Show>
         </div>
       </Show>
 

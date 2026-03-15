@@ -10,3 +10,4 @@ pub mod config;
 pub mod notifications;
 pub mod preview;
 pub mod cloud;
+pub mod oauth;

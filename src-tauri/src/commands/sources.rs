@@ -6,7 +6,7 @@ use std::str::FromStr;
 use sqlx::Row;
 
 use crate::AppState;
-use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig};
+use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig};
 use crate::models::schedule::{Schedule, RetentionPolicy};
 use crate::db::queries;
 
@@ -107,15 +107,18 @@ pub async fn add_destination(
     destination_type: Option<String>,
     cloud_config: Option<Value>,
     sftp_config: Option<Value>,
+    oauth_config: Option<Value>,
 ) -> Result<Destination, String> {
     let schedule: Schedule = serde_json::from_value(schedule).map_err(|e| e.to_string())?;
     let retention: RetentionPolicy =
         serde_json::from_value(retention).map_err(|e| e.to_string())?;
 
     let dest_type = match destination_type.as_deref() {
-        Some("S3") => DestinationType::S3,
-        Some("R2") => DestinationType::R2,
-        Some("Sftp") => DestinationType::Sftp,
+        Some("S3")          => DestinationType::S3,
+        Some("R2")          => DestinationType::R2,
+        Some("Sftp")        => DestinationType::Sftp,
+        Some("OneDrive")    => DestinationType::OneDrive,
+        Some("GoogleDrive") => DestinationType::GoogleDrive,
         _ => DestinationType::Local,
     };
     let cloud_cfg: Option<S3Config> = if matches!(dest_type, DestinationType::S3 | DestinationType::R2) {
@@ -123,6 +126,9 @@ pub async fn add_destination(
     } else { None };
     let sftp_cfg: Option<SftpConfig> = if dest_type == DestinationType::Sftp {
         sftp_config.and_then(|v| serde_json::from_value(v).ok())
+    } else { None };
+    let oauth_cfg: Option<OAuthConfig> = if matches!(dest_type, DestinationType::OneDrive | DestinationType::GoogleDrive) {
+        oauth_config.and_then(|v| serde_json::from_value(v).ok())
     } else { None };
 
     let dest = Destination {
@@ -140,6 +146,7 @@ pub async fn add_destination(
         destination_type: dest_type,
         cloud_config: cloud_cfg,
         sftp_config: sftp_cfg,
+        oauth_config: oauth_cfg,
     };
 
     queries::insert_destination(&state.db, &dest)
@@ -171,6 +178,7 @@ pub async fn update_destination(
     destination_type: Option<String>,
     cloud_config: Option<Value>,
     sftp_config: Option<Value>,
+    oauth_config: Option<Value>,
 ) -> Result<(), String> {
     // Fetch existing row to preserve source_id and run metadata
     let dest_row = sqlx::query(
@@ -211,9 +219,11 @@ pub async fn update_destination(
     let resolved_incremental = incremental.unwrap_or(existing_incremental != 0);
 
     let dest_type = match destination_type.as_deref() {
-        Some("S3") => DestinationType::S3,
-        Some("R2") => DestinationType::R2,
-        Some("Sftp") => DestinationType::Sftp,
+        Some("S3")          => DestinationType::S3,
+        Some("R2")          => DestinationType::R2,
+        Some("Sftp")        => DestinationType::Sftp,
+        Some("OneDrive")    => DestinationType::OneDrive,
+        Some("GoogleDrive") => DestinationType::GoogleDrive,
         _ => DestinationType::Local,
     };
     let cloud_cfg: Option<S3Config> = if matches!(dest_type, DestinationType::S3 | DestinationType::R2) {
@@ -221,6 +231,9 @@ pub async fn update_destination(
     } else { None };
     let sftp_cfg: Option<SftpConfig> = if dest_type == DestinationType::Sftp {
         sftp_config.and_then(|v| serde_json::from_value(v).ok())
+    } else { None };
+    let oauth_cfg: Option<OAuthConfig> = if matches!(dest_type, DestinationType::OneDrive | DestinationType::GoogleDrive) {
+        oauth_config.and_then(|v| serde_json::from_value(v).ok())
     } else { None };
 
     let is_onchange = matches!(schedule_parsed, Schedule::OnChange);
@@ -240,6 +253,7 @@ pub async fn update_destination(
         destination_type: dest_type,
         cloud_config: cloud_cfg,
         sftp_config: sftp_cfg,
+        oauth_config: oauth_cfg,
     };
 
     // Cancel existing scheduled task; re-added on next reload

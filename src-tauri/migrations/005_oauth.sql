@@ -1,0 +1,4 @@
+-- 005_oauth.sql
+-- Adds OneDrive and GoogleDrive as valid destination_type values.
+-- No schema changes required; existing cloud_config_json column is reused
+-- to store the encrypted OAuthConfig JSON blob.

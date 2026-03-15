@@ -8,6 +8,8 @@ pub enum DestinationType {
     S3,
     R2,
     Sftp,
+    OneDrive,
+    GoogleDrive,
 }
 
 impl Default for DestinationType {
@@ -29,6 +31,16 @@ pub struct S3Config {
     pub secret_access_key: String,
     pub endpoint_url: Option<String>,
     pub prefix: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OAuthConfig {
+    pub provider: String,        // "onedrive" | "gdrive"
+    pub client_id: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_at: i64,         // Unix timestamp seconds (UTC)
+    pub folder_path: String,     // Root folder on the remote drive
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,6 +115,8 @@ pub struct Destination {
     pub cloud_config: Option<S3Config>,
     #[serde(default)]
     pub sftp_config: Option<SftpConfig>,
+    #[serde(default)]
+    pub oauth_config: Option<OAuthConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

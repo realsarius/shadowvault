@@ -4,3 +4,5 @@ pub mod versioning;
 pub mod watcher;
 pub mod cloud_copier;
 pub mod sftp_copier;
+pub mod oauth_token;
+pub mod oauth_copier;

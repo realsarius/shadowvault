@@ -205,6 +205,7 @@ async fn apply_import(
                 destination_type: crate::models::DestinationType::Local,
                 cloud_config: None,
                 sftp_config: None,
+                oauth_config: None,
             };
             queries::insert_destination(db, &dest).await?;
             destinations_imported += 1;
