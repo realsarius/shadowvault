@@ -1,4 +1,5 @@
 import { createSignal, onMount, Show } from "solid-js";
+import { getVersion } from "@tauri-apps/api/app";
 import { store, loadSettings } from "../store";
 import { api } from "../api/tauri";
 import { Toggle } from "../components/ui/Toggle";
@@ -13,6 +14,12 @@ export function Settings() {
   const [error, setError] = createSignal<string | null>(null);
   const [clearingLogs, setClearingLogs] = createSignal(false);
   const [clearedCount, setClearedCount] = createSignal<number | null>(null);
+
+  const [appVersion, setAppVersion] = createSignal("0.1.0");
+  const [checkingUpdate, setCheckingUpdate] = createSignal(false);
+  const [installingUpdate, setInstallingUpdate] = createSignal(false);
+  const [updateInfo, setUpdateInfo] = createSignal<{ available: boolean; version: string | null; body: string | null } | null>(null);
+  const [updateError, setUpdateError] = createSignal<string | null>(null);
 
   const [runOnStartup, setRunOnStartup] = createSignal(false);
   const [minimizeToTray, setMinimizeToTray] = createSignal(false);
@@ -30,6 +37,7 @@ export function Settings() {
       setLogRetentionDays(s.log_retention_days);
       setLanguage(s.language);
     }
+    try { setAppVersion(await getVersion()); } catch { /* ignore in dev */ }
   });
 
   const handleSave = async () => {
@@ -46,6 +54,26 @@ export function Settings() {
     } catch (e: any) {
       setError(e?.message ?? t("set_save_err"));
     } finally { setSaving(false); }
+  };
+
+  const handleCheckUpdate = async () => {
+    setCheckingUpdate(true); setUpdateInfo(null); setUpdateError(null);
+    try {
+      const info = await api.updater.check();
+      setUpdateInfo(info);
+    } catch (e: any) {
+      setUpdateError(e?.message ?? t("set_update_err"));
+    } finally { setCheckingUpdate(false); }
+  };
+
+  const handleInstallUpdate = async () => {
+    setInstallingUpdate(true);
+    try {
+      await api.updater.install();
+    } catch (e: any) {
+      setUpdateError(e?.message ?? t("set_update_err"));
+      setInstallingUpdate(false);
+    }
   };
 
   const handleClearLogs = async () => {
@@ -137,6 +165,60 @@ export function Settings() {
         <Show when={clearedCount() !== null}>
           <div class={styles.clearedMsg}>{clearedCount()} {t("log_records")} silindi.</div>
         </Show>
+      </div>
+
+      {/* Watcher warning (Linux inotify) */}
+      <Show when={store.watcherWarning}>
+        <div class={`${styles.alert} ${styles.alertWarning}`}>
+          <strong>{t("set_watcher_warning_title")}:</strong> {store.watcherWarning}
+        </div>
+      </Show>
+
+      {/* About */}
+      <div class={styles.section}>
+        <div class={styles.sectionTitle}>{t("set_about_section")}</div>
+        <div class={styles.row}>
+          <div class={styles.rowInfo}>
+            <div class={styles.rowLabel}>{t("set_about_version")}</div>
+          </div>
+          <span class={styles.aboutValue}>v{appVersion()}</span>
+        </div>
+        <div class={styles.rowLast}>
+          <div class={styles.rowInfo}>
+            <div class={styles.rowLabel}>{t("set_about_framework")}</div>
+          </div>
+          <span class={styles.aboutValue}>Tauri v2 + SolidJS</span>
+        </div>
+      </div>
+
+      {/* Updates */}
+      <div class={styles.section}>
+        <div class={styles.sectionTitle}>{t("set_update_section")}</div>
+        <div class={styles.rowLast}>
+          <div class={styles.rowInfo}>
+            <div class={styles.rowLabel}>{t("set_update_check")}</div>
+            <Show when={updateInfo()}>
+              <div class={styles.rowDesc}>
+                {updateInfo()!.available
+                  ? `${t("set_update_available")}: v${updateInfo()!.version}`
+                  : t("set_update_none")}
+              </div>
+            </Show>
+            <Show when={updateError()}>
+              <div class={`${styles.rowDesc} ${styles.errorText}`}>{updateError()}</div>
+            </Show>
+          </div>
+          <div class={styles.updateActions}>
+            <Button variant="ghost" size="sm" onClick={handleCheckUpdate} disabled={checkingUpdate()}>
+              {checkingUpdate() ? t("set_update_checking") : t("set_update_check")}
+            </Button>
+            <Show when={updateInfo()?.available}>
+              <Button size="sm" onClick={handleInstallUpdate} disabled={installingUpdate()}>
+                {installingUpdate() ? t("set_update_installing") : t("set_update_install")}
+              </Button>
+            </Show>
+          </div>
+        </div>
       </div>
 
       <div class={styles.saveRow}>

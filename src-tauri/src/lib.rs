@@ -31,6 +31,7 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
@@ -159,6 +160,8 @@ pub fn run() {
             commands::fs::pick_directory,
             commands::fs::pick_file,
             commands::fs::get_disk_info,
+            commands::updater::check_update,
+            commands::updater::install_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

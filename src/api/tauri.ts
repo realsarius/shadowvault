@@ -38,4 +38,8 @@ export const api = {
     get: () => invoke<AppSettings>("get_settings"),
     update: (settings: AppSettings) => invoke<void>("update_settings", { settings }),
   },
+  updater: {
+    check: () => invoke<{ available: boolean; version: string | null; body: string | null }>("check_update"),
+    install: () => invoke<void>("install_update"),
+  },
 };

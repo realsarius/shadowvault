@@ -116,10 +116,33 @@
   color: var(--green);
 }
 
+.alertWarning {
+  background: rgba(245, 166, 35, 0.1);
+  border: 1px solid var(--yellow);
+  color: var(--yellow);
+}
+
+.aboutValue {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
 .clearedMsg {
   font-size: 12px;
   color: var(--green);
   margin-top: 8px;
+}
+
+.updateActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.errorText {
+  color: var(--red);
 }
 
 .saveRow {

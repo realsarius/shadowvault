@@ -167,6 +167,22 @@ const tr = {
   set_save: "Ayarları Kaydet",
   set_saved: "Ayarlar başarıyla kaydedildi.",
   set_save_err: "Ayarlar kaydedilemedi.",
+
+  // About
+  set_about_section: "Hakkında",
+  set_about_version: "Sürüm",
+  set_about_framework: "Framework",
+  set_watcher_warning_title: "Dosya İzleyici Uyarısı",
+
+  // Updater
+  set_update_section: "Güncellemeler",
+  set_update_check: "Güncelleme Kontrol Et",
+  set_update_checking: "Kontrol ediliyor...",
+  set_update_available: "Yeni sürüm mevcut",
+  set_update_none: "Uygulama güncel.",
+  set_update_install: "Yükle ve Yeniden Başlat",
+  set_update_installing: "Yükleniyor...",
+  set_update_err: "Güncelleme kontrol edilemedi.",
 } as const;
 
 const en: Record<keyof typeof tr, string> = {
@@ -336,6 +352,22 @@ const en: Record<keyof typeof tr, string> = {
   set_save: "Save Settings",
   set_saved: "Settings saved successfully.",
   set_save_err: "Settings could not be saved.",
+
+  // About
+  set_about_section: "About",
+  set_about_version: "Version",
+  set_about_framework: "Framework",
+  set_watcher_warning_title: "File Watcher Warning",
+
+  // Updater
+  set_update_section: "Updates",
+  set_update_check: "Check for Updates",
+  set_update_checking: "Checking...",
+  set_update_available: "New version available",
+  set_update_none: "App is up to date.",
+  set_update_install: "Install & Restart",
+  set_update_installing: "Installing...",
+  set_update_err: "Could not check for updates.",
 };
 
 export type TKey = keyof typeof tr;
