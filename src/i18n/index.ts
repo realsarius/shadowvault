@@ -5,7 +5,10 @@ const tr = {
   nav_dashboard: "Genel Bakış",
   nav_sources: "Kaynaklar",
   nav_logs: "Loglar",
+  nav_license: "Lisans",
   nav_settings: "Ayarlar",
+  nav_collapse: "Daralt",
+  nav_expand: "Genişlet",
 
   // TopBar
   topbar_brand: "ShadowVault",
@@ -169,10 +172,43 @@ const tr = {
   set_save_err: "Ayarlar kaydedilemedi.",
 
   // About
+  about_desc: "Güçlü ve hafif dosya yedekleme uygulaması",
   set_about_section: "Hakkında",
   set_about_version: "Sürüm",
-  set_about_framework: "Framework",
   set_watcher_warning_title: "Dosya İzleyici Uyarısı",
+  set_records_deleted: "kayıt silindi.",
+
+  // License page
+  lic_title: "Lisans & Plan",
+  lic_subtitle: "Mevcut planınız ve kaynak kullanımınızı buradan takip edebilirsiniz.",
+  lic_badge_pro: "Pro",
+  lic_badge_free: "Ücretsiz",
+  lic_plan_pro_name: "ShadowVault Pro",
+  lic_plan_free_name: "ShadowVault Ücretsiz",
+  lic_plan_pro_desc: "Sınırsız kaynak yedekleme aktif.",
+  lic_sources_using: "kaynak kullanılıyor.",
+  lic_usage_title: "Kaynak Kullanımı",
+  lic_usage_limit_full: "Limit doldu. Pro plana geçerek sınırsız kaynak ekleyebilirsiniz.",
+  lic_usage_upgrade: "Pro plana geçerek {n} daha fazla kaynak ekleyebilirsiniz.",
+  lic_features_title: "Pro Plan Özellikleri",
+  lic_feature_1: "Sınırsız kaynak yedekleme",
+  lic_feature_2: "Tüm zamanlama seçenekleri",
+  lic_feature_3: "Değişiklikte yedekleme (OnChange)",
+  lic_feature_4: "Öncelikli teknik destek",
+  lic_feature_5: "Gelecekteki tüm güncellemeler",
+  lic_btn_upgrade: "Pro Plana Geç",
+  lic_activation_title: "Lisans Aktivasyonu",
+  lic_activation_hint: "Satın aldıktan sonra e-posta ile gelen anahtarı girin.",
+  lic_key_label: "Lisans Anahtarı",
+  lic_key_invalid: "Geçersiz format. Beklenen: SV-XXXX-XXXX-XXXX-XXXX",
+  lic_activated: "Lisans başarıyla aktive edildi!",
+  lic_activation_failed: "Aktivasyon başarısız.",
+  lic_btn_activate: "Aktive Et",
+  lic_btn_activating: "Kontrol ediliyor...",
+  lic_hw_label: "Donanım Kimliği (destek için)",
+  lic_info_title: "Lisans Bilgisi",
+  lic_info_active: "Lisansınız aktif ve geçerli.",
+  lic_hw_short: "Donanım Kimliği",
 
   // Updater
   set_update_section: "Güncellemeler",
@@ -190,7 +226,10 @@ const en: Record<keyof typeof tr, string> = {
   nav_dashboard: "Overview",
   nav_sources: "Sources",
   nav_logs: "Logs",
+  nav_license: "License",
   nav_settings: "Settings",
+  nav_collapse: "Collapse",
+  nav_expand: "Expand",
 
   // TopBar
   topbar_brand: "ShadowVault",
@@ -354,10 +393,43 @@ const en: Record<keyof typeof tr, string> = {
   set_save_err: "Settings could not be saved.",
 
   // About
+  about_desc: "A powerful and lightweight file backup application",
   set_about_section: "About",
   set_about_version: "Version",
-  set_about_framework: "Framework",
   set_watcher_warning_title: "File Watcher Warning",
+  set_records_deleted: "records deleted.",
+
+  // License page
+  lic_title: "License & Plan",
+  lic_subtitle: "Track your current plan and source usage here.",
+  lic_badge_pro: "Pro",
+  lic_badge_free: "Free",
+  lic_plan_pro_name: "ShadowVault Pro",
+  lic_plan_free_name: "ShadowVault Free",
+  lic_plan_pro_desc: "Unlimited source backup active.",
+  lic_sources_using: "sources in use.",
+  lic_usage_title: "Source Usage",
+  lic_usage_limit_full: "Limit reached. Upgrade to Pro for unlimited sources.",
+  lic_usage_upgrade: "Upgrade to Pro to add {n} more sources.",
+  lic_features_title: "Pro Plan Features",
+  lic_feature_1: "Unlimited source backup",
+  lic_feature_2: "All scheduling options",
+  lic_feature_3: "Backup on change (OnChange)",
+  lic_feature_4: "Priority technical support",
+  lic_feature_5: "All future updates",
+  lic_btn_upgrade: "Upgrade to Pro",
+  lic_activation_title: "License Activation",
+  lic_activation_hint: "Enter the license key sent to your email after purchase.",
+  lic_key_label: "License Key",
+  lic_key_invalid: "Invalid format. Expected: SV-XXXX-XXXX-XXXX-XXXX",
+  lic_activated: "License activated successfully!",
+  lic_activation_failed: "Activation failed.",
+  lic_btn_activate: "Activate",
+  lic_btn_activating: "Checking...",
+  lic_hw_label: "Hardware ID (for support)",
+  lic_info_title: "License Information",
+  lic_info_active: "Your license is active and valid.",
+  lic_hw_short: "Hardware ID",
 
   // Updater
   set_update_section: "Updates",
@@ -375,4 +447,12 @@ export type TKey = keyof typeof tr;
 export function t(key: TKey): string {
   const lang = store.settings?.language ?? "tr";
   return (lang === "en" ? en : tr)[key];
+}
+
+export function ti(key: TKey, vars: Record<string, string | number>): string {
+  let str = t(key);
+  for (const [k, v] of Object.entries(vars)) {
+    str = str.replace(`{${k}}`, String(v));
+  }
+  return str;
 }

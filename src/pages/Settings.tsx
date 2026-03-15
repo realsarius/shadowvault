@@ -1,5 +1,6 @@
 import { createSignal, onMount, Show } from "solid-js";
 import { getVersion } from "@tauri-apps/api/app";
+import { emit } from "@tauri-apps/api/event";
 import { store, loadSettings } from "../store";
 import { api } from "../api/tauri";
 import { Toggle } from "../components/ui/Toggle";
@@ -49,6 +50,8 @@ export function Settings() {
     try {
       await api.settings.update(settings);
       await loadSettings();
+      // Rebuild native menu so language change is reflected immediately
+      api.menu.rebuild(language()).catch(() => {});
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e: any) {
@@ -163,7 +166,7 @@ export function Settings() {
           </div>
         </div>
         <Show when={clearedCount() !== null}>
-          <div class={styles.clearedMsg}>{clearedCount()} {t("log_records")} silindi.</div>
+          <div class={styles.clearedMsg}>{clearedCount()} {t("set_records_deleted")}</div>
         </Show>
       </div>
 
@@ -177,17 +180,16 @@ export function Settings() {
       {/* About */}
       <div class={styles.section}>
         <div class={styles.sectionTitle}>{t("set_about_section")}</div>
-        <div class={styles.row}>
+        <div class={styles.rowLast}>
           <div class={styles.rowInfo}>
             <div class={styles.rowLabel}>{t("set_about_version")}</div>
           </div>
-          <span class={styles.aboutValue}>v{appVersion()}</span>
-        </div>
-        <div class={styles.rowLast}>
-          <div class={styles.rowInfo}>
-            <div class={styles.rowLabel}>{t("set_about_framework")}</div>
+          <div style={{ display: "flex", "align-items": "center", gap: "10px" }}>
+            <span class={styles.aboutValue}>v{appVersion()}</span>
+            <Button variant="ghost" size="sm" onClick={() => emit("show-about")}>
+              {t("set_about_section")}
+            </Button>
           </div>
-          <span class={styles.aboutValue}>Tauri v2 + SolidJS</span>
         </div>
       </div>
 
