@@ -1,3 +1,4 @@
+import { t } from "../../i18n";
 import type { ScheduleType } from "../../store/types";
 import styles from "./SchedulePicker.module.css";
 
@@ -9,10 +10,10 @@ interface Props {
 export function SchedulePicker(props: Props) {
   const type = () => props.value.type;
 
-  const setType = (t: ScheduleType["type"]) => {
-    if (t === "Interval") props.onChange({ type: "Interval", value: { minutes: 60 } });
-    else if (t === "Cron") props.onChange({ type: "Cron", value: { expression: "0 2 * * *" } });
-    else if (t === "OnChange") props.onChange({ type: "OnChange" });
+  const setType = (t_: ScheduleType["type"]) => {
+    if (t_ === "Interval") props.onChange({ type: "Interval", value: { minutes: 60 } });
+    else if (t_ === "Cron") props.onChange({ type: "Cron", value: { expression: "0 2 * * *" } });
+    else if (t_ === "OnChange") props.onChange({ type: "OnChange" });
     else props.onChange({ type: "Manual" });
   };
 
@@ -21,14 +22,14 @@ export function SchedulePicker(props: Props) {
 
   return (
     <div class={styles.picker}>
-      {(["Interval", "Cron", "OnChange", "Manual"] as const).map((t) => (
+      {(["Interval", "Cron", "OnChange", "Manual"] as const).map((tp) => (
         <label class={styles.option}>
-          <input type="radio" checked={type() === t} onChange={() => setType(t)} />
-          {t === "Interval" && "Her X dakikada bir"}
-          {t === "Cron" && "Cron ifadesi"}
-          {t === "OnChange" && "Dosya değişince"}
-          {t === "Manual" && "Sadece manuel"}
-          {t === "Interval" && type() === "Interval" && (
+          <input type="radio" checked={type() === tp} onChange={() => setType(tp)} />
+          {tp === "Interval" && t("schedule_interval")}
+          {tp === "Cron" && t("schedule_cron")}
+          {tp === "OnChange" && t("schedule_onchange")}
+          {tp === "Manual" && t("schedule_manual")}
+          {tp === "Interval" && type() === "Interval" && (
             <input
               class={styles.numberInput}
               type="number"
@@ -37,7 +38,7 @@ export function SchedulePicker(props: Props) {
               onInput={(e) => props.onChange({ type: "Interval", value: { minutes: parseInt(e.currentTarget.value) || 60 } })}
             />
           )}
-          {t === "Cron" && type() === "Cron" && (
+          {tp === "Cron" && type() === "Cron" && (
             <input
               class={styles.cronInput}
               type="text"

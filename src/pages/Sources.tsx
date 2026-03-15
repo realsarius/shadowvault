@@ -4,6 +4,7 @@ import { SourceList } from "../components/sources/SourceList";
 import { DestinationList } from "../components/destinations/DestinationList";
 import { AddSourceModal } from "../components/sources/AddSourceModal";
 import { AddDestinationModal } from "../components/destinations/AddDestinationModal";
+import { t } from "../i18n";
 import styles from "./Sources.module.css";
 
 export function Sources() {
@@ -29,8 +30,8 @@ export function Sources() {
         <div class={styles.placeholder}>
           <div class={styles.placeholderInner}>
             <div class={styles.placeholderIcon}>📁</div>
-            <div>Soldaki listeden bir kaynak seçin</div>
-            <div class={styles.placeholderHint}>veya yeni bir kaynak ekleyin.</div>
+            <div>{t("src_select_hint")}</div>
+            <div class={styles.placeholderHint}>{t("src_select_hint2")}</div>
           </div>
         </div>
       }>

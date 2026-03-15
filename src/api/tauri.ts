@@ -32,6 +32,7 @@ export const api = {
   fs: {
     pickDirectory: () => invoke<string | null>("pick_directory"),
     pickFile: () => invoke<string | null>("pick_file"),
+    getDiskInfo: (path: string) => invoke<{ total_bytes: number; available_bytes: number; path: string }>("get_disk_info", { path }),
   },
   settings: {
     get: () => invoke<AppSettings>("get_settings"),

@@ -1,5 +1,6 @@
 import { createSignal, For, Show, createMemo } from "solid-js";
 import { Badge } from "../ui/Badge";
+import { t } from "../../i18n";
 import type { LogEntry, Source, JobStatus } from "../../store/types";
 import styles from "./LogPanel.module.css";
 
@@ -39,12 +40,22 @@ function statusToVariant(status: JobStatus): "success" | "error" | "warning" | "
 }
 
 function statusLabel(status: JobStatus): string {
-  const map: Record<string, string> = { Success: "Başarılı", Failed: "Hata", Running: "Çalışıyor", Skipped: "Atlandı", Cancelled: "İptal" };
+  const map: Record<string, string> = {
+    Success: t("status_success"),
+    Failed: t("status_failed"),
+    Running: t("status_running"),
+    Skipped: t("status_skipped"),
+    Cancelled: t("status_cancelled"),
+  };
   return map[status] ?? status;
 }
 
 function triggerLabel(trigger: string): string {
-  const map: Record<string, string> = { Scheduled: "Zamanlı", OnChange: "Değişince", Manual: "Manuel" };
+  const map: Record<string, string> = {
+    Scheduled: t("trigger_scheduled"),
+    OnChange: t("trigger_onchange"),
+    Manual: t("trigger_manual"),
+  };
   return map[trigger] ?? trigger;
 }
 
@@ -70,40 +81,40 @@ export function LogPanel(props: Props) {
   return (
     <div class={styles.root}>
       <div class={styles.filters}>
-        <span class={styles.filterLabel}>Filtre:</span>
+        <span class={styles.filterLabel}>{t("log_filter")}</span>
         <select class={styles.select} value={filterSource()} onChange={(e) => setFilterSource(e.currentTarget.value)}>
-          <option value="all">Tüm Kaynaklar</option>
+          <option value="all">{t("log_all_sources")}</option>
           <For each={props.sources}>{(s) => <option value={s.id}>{s.name}</option>}</For>
         </select>
         <select class={styles.select} value={filterStatus()} onChange={(e) => setFilterStatus(e.currentTarget.value)}>
-          <option value="all">Tüm Durumlar</option>
-          <option value="Success">Başarılı</option>
-          <option value="Failed">Hata</option>
-          <option value="Running">Çalışıyor</option>
-          <option value="Skipped">Atlandı</option>
-          <option value="Cancelled">İptal</option>
+          <option value="all">{t("log_all_statuses")}</option>
+          <option value="Success">{t("status_success")}</option>
+          <option value="Failed">{t("status_failed")}</option>
+          <option value="Running">{t("status_running")}</option>
+          <option value="Skipped">{t("status_skipped")}</option>
+          <option value="Cancelled">{t("status_cancelled")}</option>
         </select>
-        <span class={styles.count}>{filtered().length} kayıt</span>
+        <span class={styles.count}>{filtered().length} {t("log_records")}</span>
       </div>
 
       <div class={styles.tableWrapper}>
         <Show when={filtered().length === 0}>
           <div class={styles.empty}>
             <div class={styles.emptyIcon}>📋</div>
-            Gösterilecek log kaydı yok.
+            {t("log_empty")}
           </div>
         </Show>
         <Show when={filtered().length > 0}>
           <table class={styles.table}>
             <thead>
               <tr>
-                <th class={styles.th}>Durum</th>
-                <th class={styles.th}>Kaynak</th>
-                <th class={styles.th}>Hedef</th>
-                <th class={styles.th}>Tetikleyici</th>
-                <th class={styles.th}>Başlangıç</th>
-                <th class={styles.th}>Süre</th>
-                <th class={styles.th}>Veri</th>
+                <th class={styles.th}>{t("log_col_status")}</th>
+                <th class={styles.th}>{t("log_col_source")}</th>
+                <th class={styles.th}>{t("log_col_dest")}</th>
+                <th class={styles.th}>{t("log_col_trigger")}</th>
+                <th class={styles.th}>{t("log_col_start")}</th>
+                <th class={styles.th}>{t("log_col_duration")}</th>
+                <th class={styles.th}>{t("log_col_data")}</th>
               </tr>
             </thead>
             <tbody>

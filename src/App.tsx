@@ -1,4 +1,4 @@
-import { onMount, Switch, Match } from "solid-js";
+import { createEffect, onMount, Switch, Match } from "solid-js";
 import { Layout } from "./components/layout/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { Sources } from "./pages/Sources";
@@ -8,7 +8,18 @@ import { store, initStore } from "./store";
 import "./styles/globals.css";
 
 export function App() {
-  onMount(() => { initStore(); });
+  onMount(() => initStore());
+
+  createEffect(() => {
+    const theme = store.settings?.theme ?? "dark";
+    const root = document.documentElement;
+    if (theme === "system") {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.setAttribute("data-theme", prefersDark ? "dark" : "light");
+    } else {
+      root.setAttribute("data-theme", theme);
+    }
+  });
 
   return (
     <Layout>

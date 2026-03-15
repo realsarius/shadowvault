@@ -3,6 +3,7 @@ import { store, loadSettings } from "../store";
 import { api } from "../api/tauri";
 import { Toggle } from "../components/ui/Toggle";
 import { Button } from "../components/ui/Button";
+import { t } from "../i18n";
 import type { AppSettings } from "../store/types";
 import styles from "./Settings.module.css";
 
@@ -43,12 +44,12 @@ export function Settings() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e: any) {
-      setError(e?.message ?? "Ayarlar kaydedilemedi.");
+      setError(e?.message ?? t("set_save_err"));
     } finally { setSaving(false); }
   };
 
   const handleClearLogs = async () => {
-    if (!confirm(`${logRetentionDays()} günden eski logları silmek istediğinizden emin misiniz?`)) return;
+    if (!confirm(`${logRetentionDays()} ${t("set_days")} ${t("set_log_retention_desc")}`)) return;
     setClearingLogs(true); setClearedCount(null);
     try {
       const count = await api.logs.clearOld(logRetentionDays());
@@ -60,31 +61,31 @@ export function Settings() {
   return (
     <div class={styles.root}>
       <div class={styles.pageHeader}>
-        <div class={styles.pageTitle}>Ayarlar</div>
-        <div class={styles.pageSubtitle}>Uygulama davranışını yapılandırın</div>
+        <div class={styles.pageTitle}>{t("set_title")}</div>
+        <div class={styles.pageSubtitle}>{t("set_subtitle")}</div>
       </div>
 
       <Show when={error()}>
         <div class={`${styles.alert} ${styles.alertError}`}>{error()}</div>
       </Show>
       <Show when={saved()}>
-        <div class={`${styles.alert} ${styles.alertSuccess}`}>Ayarlar başarıyla kaydedildi.</div>
+        <div class={`${styles.alert} ${styles.alertSuccess}`}>{t("set_saved")}</div>
       </Show>
 
       {/* Startup & Behavior */}
       <div class={styles.section}>
-        <div class={styles.sectionTitle}>Başlangıç ve Davranış</div>
+        <div class={styles.sectionTitle}>{t("set_startup_section")}</div>
         <div class={styles.row}>
           <div class={styles.rowInfo}>
-            <div class={styles.rowLabel}>Sistemle Başlat</div>
-            <div class={styles.rowDesc}>Bilgisayar açıldığında uygulamayı otomatik başlat</div>
+            <div class={styles.rowLabel}>{t("set_run_on_startup")}</div>
+            <div class={styles.rowDesc}>{t("set_run_on_startup_desc")}</div>
           </div>
           <Toggle value={runOnStartup()} onChange={setRunOnStartup} />
         </div>
         <div class={styles.rowLast}>
           <div class={styles.rowInfo}>
-            <div class={styles.rowLabel}>Sistem Tepsisine Küçült</div>
-            <div class={styles.rowDesc}>Pencere kapatıldığında arka planda çalışmaya devam et</div>
+            <div class={styles.rowLabel}>{t("set_minimize_tray")}</div>
+            <div class={styles.rowDesc}>{t("set_minimize_tray_desc")}</div>
           </div>
           <Toggle value={minimizeToTray()} onChange={setMinimizeToTray} />
         </div>
@@ -92,22 +93,22 @@ export function Settings() {
 
       {/* Appearance */}
       <div class={styles.section}>
-        <div class={styles.sectionTitle}>Görünüm ve Dil</div>
+        <div class={styles.sectionTitle}>{t("set_appearance_section")}</div>
         <div class={styles.row}>
           <div class={styles.rowInfo}>
-            <div class={styles.rowLabel}>Tema</div>
-            <div class={styles.rowDesc}>Arayüz rengini seçin</div>
+            <div class={styles.rowLabel}>{t("set_theme")}</div>
+            <div class={styles.rowDesc}>{t("set_theme_desc")}</div>
           </div>
           <select class={styles.select} value={theme()} onChange={(e) => setTheme(e.currentTarget.value as any)}>
-            <option value="dark">Koyu</option>
-            <option value="light">Açık</option>
-            <option value="system">Sistem</option>
+            <option value="dark">{t("set_theme_dark")}</option>
+            <option value="light">{t("set_theme_light")}</option>
+            <option value="system">{t("set_theme_system")}</option>
           </select>
         </div>
         <div class={styles.rowLast}>
           <div class={styles.rowInfo}>
-            <div class={styles.rowLabel}>Dil</div>
-            <div class={styles.rowDesc}>Arayüz dilini seçin</div>
+            <div class={styles.rowLabel}>{t("set_language")}</div>
+            <div class={styles.rowDesc}>{t("set_language_desc")}</div>
           </div>
           <select class={styles.select} value={language()} onChange={(e) => setLanguage(e.currentTarget.value as any)}>
             <option value="tr">Türkçe</option>
@@ -118,29 +119,29 @@ export function Settings() {
 
       {/* Logs */}
       <div class={styles.section}>
-        <div class={styles.sectionTitle}>Log Yönetimi</div>
+        <div class={styles.sectionTitle}>{t("set_log_section")}</div>
         <div class={styles.rowLast}>
           <div class={styles.rowInfo}>
-            <div class={styles.rowLabel}>Log Saklama Süresi</div>
-            <div class={styles.rowDesc}>Bu süreden eski loglar silinir</div>
+            <div class={styles.rowLabel}>{t("set_log_retention")}</div>
+            <div class={styles.rowDesc}>{t("set_log_retention_desc")}</div>
           </div>
           <div class={styles.retentionRow}>
             <input class={styles.numberInput} type="number" min={1} max={365}
               value={logRetentionDays()} onInput={(e) => setLogRetentionDays(parseInt(e.currentTarget.value) || 30)} />
-            <span class={styles.retentionUnit}>gün</span>
+            <span class={styles.retentionUnit}>{t("set_days")}</span>
             <Button variant="danger" size="sm" onClick={handleClearLogs} disabled={clearingLogs()}>
-              {clearingLogs() ? "Temizleniyor..." : "Temizle"}
+              {clearingLogs() ? t("btn_clearing") : t("btn_clear")}
             </Button>
           </div>
         </div>
         <Show when={clearedCount() !== null}>
-          <div class={styles.clearedMsg}>{clearedCount()} log kaydı silindi.</div>
+          <div class={styles.clearedMsg}>{clearedCount()} {t("log_records")} silindi.</div>
         </Show>
       </div>
 
       <div class={styles.saveRow}>
         <Button onClick={handleSave} disabled={saving()}>
-          {saving() ? "Kaydediliyor..." : "Ayarları Kaydet"}
+          {saving() ? t("btn_saving") : t("set_save")}
         </Button>
       </div>
     </div>

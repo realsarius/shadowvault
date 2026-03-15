@@ -1,4 +1,5 @@
 import { Badge } from "../ui/Badge";
+import { t } from "../../i18n";
 import type { Source } from "../../store/types";
 import styles from "./SourceCard.module.css";
 
@@ -23,11 +24,11 @@ export function SourceCard(props: Props) {
           <span class={styles.name}>{props.source.name}</span>
         </div>
         <Badge variant={props.source.enabled ? "success" : "neutral"}>
-          {props.source.enabled ? "Aktif" : "Devre Dışı"}
+          {props.source.enabled ? t("status_active") : t("status_disabled")}
         </Badge>
       </div>
       <div class={styles.path}>{props.source.path}</div>
-      <div class={styles.meta}>{props.source.destinations.length} hedef</div>
+      <div class={styles.meta}>{props.source.destinations.length} {t("src_targets")}</div>
     </button>
   );
 }

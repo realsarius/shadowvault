@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { Toggle } from "../ui/Toggle";
+import { t } from "../../i18n";
 import { api } from "../../api/tauri";
 import type { Source, Destination, JobStatus } from "../../store/types";
 import styles from "./DestinationList.module.css";
@@ -15,10 +16,10 @@ interface Props {
 
 function scheduleLabel(dest: Destination): string {
   const s = dest.schedule;
-  if (s.type === "Interval") return `Her ${s.value.minutes} dakikada`;
+  if (s.type === "Interval") return `${t("dest_schedule_label").replace(":", "")} ${s.value.minutes}dk`;
   if (s.type === "Cron") return `Cron: ${s.value.expression}`;
-  if (s.type === "OnChange") return "Değişince";
-  return "Manuel";
+  if (s.type === "OnChange") return t("trigger_onchange");
+  return t("trigger_manual");
 }
 
 function formatDate(iso: string | null): string {
@@ -37,7 +38,13 @@ function statusToVariant(status: JobStatus | null): "success" | "error" | "warni
 
 function statusLabel(status: JobStatus | null): string {
   if (!status) return "—";
-  const map: Record<string, string> = { Success: "Başarılı", Failed: "Hata", Running: "Çalışıyor", Skipped: "Atlandı", Cancelled: "İptal" };
+  const map: Record<string, string> = {
+    Success: t("status_success"),
+    Failed: t("status_failed"),
+    Running: t("status_running"),
+    Skipped: t("status_skipped"),
+    Cancelled: t("status_cancelled"),
+  };
   return map[status] ?? status;
 }
 
@@ -53,7 +60,7 @@ export function DestinationList(props: Props) {
   };
 
   const handleDelete = async (destId: string) => {
-    if (!confirm("Bu hedefi silmek istediğinizden emin misiniz?")) return;
+    if (!confirm(t("dest_delete_confirm"))) return;
     setDeletingId(destId);
     try { await api.destinations.delete(destId); props.onRefresh(); }
     finally { setDeletingId(null); }
@@ -74,16 +81,16 @@ export function DestinationList(props: Props) {
             <div class={styles.sourcePath}>{props.source.path}</div>
           </div>
         </div>
-        <Button size="sm" onClick={props.onAddDestination}>+ Hedef Ekle</Button>
+        <Button size="sm" onClick={props.onAddDestination}>{t("dest_add")}</Button>
       </div>
 
       <div class={styles.list}>
         <Show when={props.source.destinations.length === 0}>
           <div class={styles.empty}>
             <div class={styles.emptyIcon}>🗂️</div>
-            Bu kaynak için henüz hedef yok.
+            {t("dest_empty")}
             <br />
-            <span class={styles.emptyHint}>Hedef ekleyerek yedeklemeyi başlatın.</span>
+            <span class={styles.emptyHint}>{t("dest_empty_hint")}</span>
           </div>
         </Show>
         <For each={props.source.destinations}>
@@ -96,33 +103,33 @@ export function DestinationList(props: Props) {
                     <div class={styles.destPath}>{dest.path}</div>
                     <div class={styles.metaRow}>
                       <span class={styles.metaItem}>
-                        <span class={styles.metaLabel}>Zamanlama: </span>{scheduleLabel(dest)}
+                        <span class={styles.metaLabel}>{t("dest_schedule_label")} </span>{scheduleLabel(dest)}
                       </span>
                       <span class={styles.metaItem}>
-                        <span class={styles.metaLabel}>Son çalışma: </span>{formatDate(dest.last_run)}
+                        <span class={styles.metaLabel}>{t("dest_last_run")} </span>{formatDate(dest.last_run)}
                       </span>
                       <span class={styles.metaItem}>
-                        <span class={styles.metaLabel}>Sonraki: </span>{formatDate(dest.next_run)}
+                        <span class={styles.metaLabel}>{t("dest_next_run")} </span>{formatDate(dest.next_run)}
                       </span>
                     </div>
                   </div>
                   <div class={styles.cardActions}>
                     <Show when={dest.last_status}>
                       <Badge variant={isRunning() ? "running" : statusToVariant(dest.last_status)}>
-                        {isRunning() ? "Çalışıyor" : statusLabel(dest.last_status)}
+                        {isRunning() ? t("status_running") : statusLabel(dest.last_status)}
                       </Badge>
                     </Show>
                   </div>
                 </div>
                 <div class={styles.cardFooter}>
                   <Toggle value={dest.enabled} onChange={() => handleToggleEnabled(dest)}
-                    label={dest.enabled ? "Aktif" : "Devre Dışı"} />
+                    label={dest.enabled ? t("status_active") : t("status_disabled")} />
                   <div class={styles.footerButtons}>
                     <Button variant="ghost" size="sm" onClick={() => handleRunNow(dest.id)} disabled={isRunning()}>
-                      {isRunning() ? "Çalışıyor..." : "▶ Şimdi Çalıştır"}
+                      {isRunning() ? t("btn_running") : t("btn_run_now")}
                     </Button>
                     <Button variant="danger" size="sm" onClick={() => handleDelete(dest.id)} disabled={deletingId() === dest.id}>
-                      Sil
+                      {t("btn_delete")}
                     </Button>
                   </div>
                 </div>

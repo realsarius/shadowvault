@@ -3,6 +3,7 @@ import { store } from "../store";
 import { api } from "../api/tauri";
 import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
+import { t } from "../i18n";
 import type { JobStatus } from "../store/types";
 import styles from "./Dashboard.module.css";
 
@@ -44,7 +45,13 @@ function statusToVariant(status: JobStatus): "success" | "error" | "warning" | "
 }
 
 function statusLabel(status: JobStatus): string {
-  const map: Record<string, string> = { Success: "Başarılı", Failed: "Hata", Running: "Çalışıyor", Skipped: "Atlandı", Cancelled: "İptal" };
+  const map: Record<string, string> = {
+    Success: t("status_success"),
+    Failed: t("status_failed"),
+    Running: t("status_running"),
+    Skipped: t("status_skipped"),
+    Cancelled: t("status_cancelled"),
+  };
   return map[status] ?? status;
 }
 
@@ -69,24 +76,24 @@ export function Dashboard() {
       {/* Stats */}
       <div class={styles.statsGrid}>
         <div class={styles.statCard}>
-          <div class={styles.statLabel}>Toplam Kaynak</div>
+          <div class={styles.statLabel}>{t("dash_total_sources")}</div>
           <div class={styles.statValue}>{store.sources.length}</div>
-          <div class={styles.statSub}>{store.sources.filter((s) => s.enabled).length} aktif</div>
+          <div class={styles.statSub}>{store.sources.filter((s) => s.enabled).length} {t("dash_active")}</div>
         </div>
         <div class={styles.statCard}>
-          <div class={styles.statLabel}>Bugün Başarılı</div>
+          <div class={styles.statLabel}>{t("dash_success_today")}</div>
           <div class={styles.statValueGreen}>{successToday()}</div>
-          <div class={styles.statSub}>kopya</div>
+          <div class={styles.statSub}>{t("dash_copies")}</div>
         </div>
         <div class={styles.statCard}>
-          <div class={styles.statLabel}>Bugün Kopyalanan</div>
+          <div class={styles.statLabel}>{t("dash_copied_today")}</div>
           <div class={styles.statValueAccent}>{formatBytes(bytesToday())}</div>
-          <div class={styles.statSub}>toplam veri</div>
+          <div class={styles.statSub}>{t("dash_total_data")}</div>
         </div>
         <div class={styles.statCard}>
-          <div class={styles.statLabel}>Son Hata</div>
-          <Show when={lastError()} fallback={<div class={styles.statNoError}>Hata Yok</div>}>
-            <div class={styles.statErrorName}>{sourceMap()[lastError()!.source_id] ?? "Bilinmeyen"}</div>
+          <div class={styles.statLabel}>{t("dash_last_error")}</div>
+          <Show when={lastError()} fallback={<div class={styles.statNoError}>{t("status_no_error")}</div>}>
+            <div class={styles.statErrorName}>{sourceMap()[lastError()!.source_id] ?? t("dash_unknown")}</div>
             <div class={styles.statErrorTime}>{timeAgo(lastError()!.started_at)}</div>
           </Show>
         </div>
@@ -94,9 +101,9 @@ export function Dashboard() {
 
       {/* Sources overview */}
       <div class={styles.card}>
-        <div class={styles.cardTitle}>Kaynaklar</div>
+        <div class={styles.cardTitle}>{t("dash_sources_card")}</div>
         <Show when={store.sources.length === 0}>
-          <div class={styles.empty}>Henüz kaynak yok. Kaynaklar sayfasından ekleyin.</div>
+          <div class={styles.empty}>{t("dash_no_sources")}</div>
         </Show>
         <div class={styles.sourcesList}>
           <For each={store.sources}>
@@ -112,16 +119,16 @@ export function Dashboard() {
                   </div>
                   <div class={styles.sourceMeta}>
                     <div class={styles.metaItem}>
-                      <div class={styles.metaItemLabel}>Son çalışma</div>
+                      <div class={styles.metaItemLabel}>{t("dash_last_run")}</div>
                       <div class={styles.metaItemVal}>{timeAgo(lastDest?.last_run ?? null)}</div>
                     </div>
                     <div class={styles.metaItem}>
-                      <div class={styles.metaItemLabel}>Sonraki</div>
+                      <div class={styles.metaItemLabel}>{t("dash_next_run")}</div>
                       <div class={styles.metaItemVal}>{formatDate(lastDest?.next_run ?? null)}</div>
                     </div>
-                    <div class={styles.destCount}>{source.destinations.length} hedef</div>
+                    <div class={styles.destCount}>{source.destinations.length} {t("dash_targets")}</div>
                     <Button variant="ghost" size="sm" onClick={() => handleRunSourceNow(source.id)} disabled={isRunning()}>
-                      {isRunning() ? "Çalışıyor..." : "▶ Çalıştır"}
+                      {isRunning() ? t("dash_running") : t("dash_run_now")}
                     </Button>
                   </div>
                 </div>
@@ -133,9 +140,9 @@ export function Dashboard() {
 
       {/* Recent activity */}
       <div class={styles.card}>
-        <div class={styles.cardTitle}>Son Aktivite</div>
+        <div class={styles.cardTitle}>{t("dash_recent")}</div>
         <Show when={recentLogs().length === 0}>
-          <div class={styles.empty}>Henüz log kaydı yok.</div>
+          <div class={styles.empty}>{t("dash_no_logs")}</div>
         </Show>
         <div class={styles.activityList}>
           <For each={recentLogs()}>
