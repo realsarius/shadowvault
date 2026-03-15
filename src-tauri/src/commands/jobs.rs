@@ -1,0 +1,183 @@
+use tauri::{State, AppHandle, Emitter};
+
+use crate::AppState;
+use crate::engine::copier::CopyJob;
+use crate::db::queries;
+
+#[tauri::command]
+pub async fn run_now(
+    destination_id: String,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    // Check if already running
+    if state.running_jobs.contains_key(&destination_id) {
+        return Err(format!("Destination {} is already running", destination_id));
+    }
+
+    // Look up destination and source
+    let dest_row = sqlx::query(
+        "SELECT id, source_id, path, schedule_json, retention_json, enabled, last_run, last_status, next_run FROM destinations WHERE id = ?"
+    )
+    .bind(&destination_id)
+    .fetch_optional(state.db.as_ref())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let dest_row = dest_row.ok_or_else(|| format!("Destination {} not found", destination_id))?;
+
+    use sqlx::Row;
+    let source_id: String = dest_row.try_get("source_id").map_err(|e| e.to_string())?;
+
+    let source = queries::get_source_by_id(&state.db, &source_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Source {} not found", source_id))?;
+
+    let dests = queries::get_destinations_for_source(&state.db, &source_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let dest = dests
+        .into_iter()
+        .find(|d| d.id == destination_id)
+        .ok_or_else(|| format!("Destination {} not found in source", destination_id))?;
+
+    let db = state.db.clone();
+    let running_jobs = state.running_jobs.clone();
+    let dest_id_clone = destination_id.clone();
+    let app_handle_clone = app_handle.clone();
+
+    let job_handle = tauri::async_runtime::spawn(async move {
+        let job = CopyJob {
+            source,
+            destination: dest,
+            trigger: "Manual".to_string(),
+        };
+
+        match job.execute(db).await {
+            Ok(log_entry) => {
+                log::info!("Manual copy completed for destination {}", dest_id_clone);
+                let _ = app_handle_clone.emit("copy-completed", &log_entry);
+            }
+            Err(e) => {
+                log::error!("Manual copy failed for destination {}: {}", dest_id_clone, e);
+                let payload = serde_json::json!({
+                    "destination_id": dest_id_clone,
+                    "error": e.to_string()
+                });
+                let _ = app_handle_clone.emit("copy-error", &payload);
+            }
+        }
+
+        running_jobs.remove(&dest_id_clone);
+    });
+
+    state
+        .running_jobs
+        .insert(destination_id, job_handle.abort_handle());
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn run_source_now(
+    source_id: String,
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let source = queries::get_source_by_id(&state.db, &source_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Source {} not found", source_id))?;
+
+    let dests = queries::get_destinations_for_source(&state.db, &source_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    for dest in dests {
+        if !dest.enabled {
+            continue;
+        }
+
+        let dest_id = dest.id.clone();
+
+        // Skip if already running
+        if state.running_jobs.contains_key(&dest_id) {
+            log::info!("Destination {} is already running, skipping run_source_now", dest_id);
+            continue;
+        }
+
+        let db = state.db.clone();
+        let running_jobs = state.running_jobs.clone();
+        let source_clone = source.clone();
+        let dest_id_clone = dest_id.clone();
+        let app_handle_clone = app_handle.clone();
+
+        let job_handle = tauri::async_runtime::spawn(async move {
+            let job = CopyJob {
+                source: source_clone,
+                destination: dest,
+                trigger: "Manual".to_string(),
+            };
+
+            match job.execute(db).await {
+                Ok(log_entry) => {
+                    log::info!("Source run completed for destination {}", dest_id_clone);
+                    let _ = app_handle_clone.emit("copy-completed", &log_entry);
+                }
+                Err(e) => {
+                    log::error!("Source run failed for destination {}: {}", dest_id_clone, e);
+                    let payload = serde_json::json!({
+                        "destination_id": dest_id_clone,
+                        "error": e.to_string()
+                    });
+                    let _ = app_handle_clone.emit("copy-error", &payload);
+                }
+            }
+
+            running_jobs.remove(&dest_id_clone);
+        });
+
+        state
+            .running_jobs
+            .insert(dest_id, job_handle.abort_handle());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn pause_all(state: State<'_, AppState>) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    state.paused.store(true, Ordering::SeqCst);
+
+    // Cancel all scheduled tasks (they will check the paused flag, but we cancel too)
+    let mut scheduler = state.scheduler.lock().await;
+    scheduler.cancel_all();
+
+    log::info!("All scheduled jobs paused");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn resume_all(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    use std::sync::atomic::Ordering;
+    state.paused.store(false, Ordering::SeqCst);
+
+    // Reload scheduler from DB
+    let db = state.db.clone();
+    let running_jobs = state.running_jobs.clone();
+    let paused = state.paused.clone();
+
+    let mut scheduler = state.scheduler.lock().await;
+    scheduler
+        .reload_all(db, running_jobs, app_handle, paused)
+        .await;
+
+    log::info!("All scheduled jobs resumed");
+    Ok(())
+}
