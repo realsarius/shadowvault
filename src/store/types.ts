@@ -1,0 +1,68 @@
+export type SourceType = "File" | "Directory";
+
+export type ScheduleType =
+  | { type: "Interval"; value: { minutes: number } }
+  | { type: "Cron"; value: { expression: string } }
+  | { type: "OnChange" }
+  | { type: "Manual" };
+
+export type VersionNaming = "Timestamp" | "Index" | "Overwrite";
+
+export interface RetentionPolicy {
+  max_versions: number;
+  naming: VersionNaming;
+}
+
+export interface Destination {
+  id: string;
+  source_id: string;
+  path: string;
+  schedule: ScheduleType;
+  retention: RetentionPolicy;
+  enabled: boolean;
+  last_run: string | null;
+  last_status: JobStatus | null;
+  next_run: string | null;
+}
+
+export interface Source {
+  id: string;
+  name: string;
+  path: string;
+  source_type: SourceType;
+  enabled: boolean;
+  created_at: string;
+  destinations: Destination[];
+}
+
+export type JobStatus = "Running" | "Success" | "Failed" | "Skipped" | "Cancelled";
+export type TriggerType = "Scheduled" | "OnChange" | "Manual";
+
+export interface LogEntry {
+  id: number;
+  source_id: string;
+  destination_id: string;
+  source_path: string;
+  destination_path: string;
+  started_at: string;
+  ended_at: string | null;
+  status: JobStatus;
+  bytes_copied: number | null;
+  files_copied: number | null;
+  error_message: string | null;
+  trigger: TriggerType;
+}
+
+export interface AppSettings {
+  run_on_startup: boolean;
+  minimize_to_tray: boolean;
+  theme: "dark" | "light" | "system";
+  log_retention_days: number;
+  language: "tr" | "en";
+}
+
+export interface DiskInfo {
+  total_bytes: number;
+  available_bytes: number;
+  path: string;
+}

@@ -1,0 +1,128 @@
+.field {
+  margin-bottom: 16px;
+}
+
+.label {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.input {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  outline: none;
+  font-family: var(--font-sans);
+}
+
+.input:focus {
+  border-color: var(--border-focus);
+}
+
+.inputRow {
+  display: flex;
+  gap: 8px;
+}
+
+.inputFlex {
+  flex: 1;
+}
+
+.radioGroup {
+  display: flex;
+  gap: 8px;
+}
+
+.radioLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.scheduleBox {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.retentionRow {
+  display: flex;
+  gap: 16px;
+}
+
+.retentionCol {
+  flex: 1;
+}
+
+.error {
+  background: rgba(255, 77, 77, 0.1);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  color: var(--red);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.footerRow {
+  display: flex;
+  gap: 8px;
+}
+
+/* Summary step */
+.summaryCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+}
+
+.summaryCards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.summarySection {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summaryRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.summaryKey {
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.summaryVal {
+  color: var(--text-primary);
+  font-size: 12px;
+  word-break: break-all;
+  text-align: right;
+}

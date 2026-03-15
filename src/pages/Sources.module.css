@@ -1,0 +1,32 @@
+.root {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+}
+
+.placeholder {
+  flex: 1;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.placeholderInner {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.placeholderIcon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.placeholderHint {
+  font-size: 12px;
+  margin-top: 4px;
+}
