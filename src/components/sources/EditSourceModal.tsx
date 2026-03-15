@@ -59,6 +59,7 @@ export function EditSourceModal(props: Props) {
   return (
     <Modal
       open={props.open}
+      closeOnBackdrop={false}
       onClose={handleClose}
       title={t("edit_src_title")}
       footer={

@@ -209,9 +209,53 @@ pub async fn store_license(state: State<'_, AppState>, key: String) -> Result<()
         .map_err(|e| e.to_string())
 }
 
-/// Clears the stored license key (deactivation).
+/// Clears the stored license key (local only, no server call).
 #[tauri::command]
 pub async fn clear_license(state: State<'_, AppState>) -> Result<(), String> {
+    queries::upsert_setting(&state.db, "license_key", "")
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Deactivates the license on the server and clears it locally.
+/// Allows the user to activate on a different device afterwards.
+#[tauri::command]
+pub async fn deactivate_license(state: State<'_, AppState>) -> Result<(), String> {
+    let hw_raw = hardware_id_raw();
+    let hw_id = hardware_id_formatted(&hw_raw);
+
+    let stored = queries::get_setting(&state.db, "license_key")
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if let Some(s) = stored.filter(|k| !k.is_empty()) {
+        if let Some(key) = resolve_stored_key(&s, &hw_raw) {
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| e.to_string())?;
+
+            let resp = client
+                .post(format!("{}/licenses/deactivate", LICENSE_API))
+                .json(&LicenseApiRequest { key, hardware_id: hw_id })
+                .send()
+                .await;
+
+            // If server is unreachable we still clear locally so the user isn't stuck.
+            if let Ok(r) = resp {
+                let data: serde_json::Value = r.json().await.unwrap_or_default();
+                let ok = data.get("deactivated").and_then(|v| v.as_bool()).unwrap_or(true);
+                if !ok {
+                    let msg = data.get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Deaktivasyon başarısız.")
+                        .to_string();
+                    return Err(msg);
+                }
+            }
+        }
+    }
+
     queries::upsert_setting(&state.db, "license_key", "")
         .await
         .map_err(|e| e.to_string())

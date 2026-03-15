@@ -88,6 +88,7 @@ export function AddDestinationModal(props: Props) {
     <>
     <Modal
       open={props.open}
+      closeOnBackdrop={false}
       onClose={handleClose}
       title={t("add_dest_title")}
       footer={

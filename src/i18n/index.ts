@@ -229,6 +229,24 @@ const tr = {
   lic_info_title: "Lisans Bilgisi",
   lic_info_active: "Lisansınız aktif ve geçerli.",
   lic_hw_short: "Donanım Kimliği",
+  lic_deactivate_btn: "Bu Cihazdan Kaldır",
+  lic_deactivate_hint: "Lisansı kaldırdıktan sonra başka bir cihazda aktive edebilirsiniz.",
+  lic_deactivate_confirm: "Lisansı bu cihazdan kaldırmak istediğinizden emin misiniz?",
+  lic_deactivating: "Kaldırılıyor...",
+  lic_deactivated: "Lisans bu cihazdan kaldırıldı.",
+  lic_deactivate_fail: "Kaldırma işlemi başarısız.",
+
+  // Config export/import
+  set_config_section: "Yapılandırma Yedekleme",
+  set_config_export: "Dışa Aktar",
+  set_config_export_desc: "Tüm kaynakları, hedefleri ve ayarları JSON dosyasına aktar.",
+  set_config_import: "İçe Aktar",
+  set_config_import_desc: "JSON dosyasından kaynakları ve ayarları geri yükle (mevcut veriler korunur).",
+  set_config_exporting: "Aktarılıyor...",
+  set_config_importing: "Yükleniyor...",
+  set_config_exported: "Yapılandırma dışa aktarıldı.",
+  set_config_imported_ok: "İçe aktarıldı: {s} kaynak, {d} hedef.",
+  set_config_err: "İşlem başarısız.",
 
   // Updater
   set_update_section: "Güncellemeler",
@@ -470,6 +488,24 @@ const en: Record<keyof typeof tr, string> = {
   lic_info_title: "License Information",
   lic_info_active: "Your license is active and valid.",
   lic_hw_short: "Hardware ID",
+  lic_deactivate_btn: "Remove From This Device",
+  lic_deactivate_hint: "After removing, you can activate on another device.",
+  lic_deactivate_confirm: "Are you sure you want to remove the license from this device?",
+  lic_deactivating: "Removing...",
+  lic_deactivated: "License removed from this device.",
+  lic_deactivate_fail: "Removal failed.",
+
+  // Config export/import
+  set_config_section: "Configuration Backup",
+  set_config_export: "Export",
+  set_config_export_desc: "Export all sources, destinations and settings to a JSON file.",
+  set_config_import: "Import",
+  set_config_import_desc: "Restore sources and settings from a JSON file (existing data is preserved).",
+  set_config_exporting: "Exporting...",
+  set_config_importing: "Importing...",
+  set_config_exported: "Configuration exported.",
+  set_config_imported_ok: "Imported: {s} sources, {d} destinations.",
+  set_config_err: "Operation failed.",
 
   // Updater
   set_update_section: "Updates",

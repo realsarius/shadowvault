@@ -90,6 +90,7 @@ export function AddSourceModal(props: Props) {
     <>
     <Modal
       open={props.open}
+      closeOnBackdrop={false}
       onClose={handleClose}
       title={`Step ${step()}/3: ${stepTitles()[step() - 1]}`}
       footer={

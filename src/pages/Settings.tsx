@@ -5,7 +5,7 @@ import { store, loadSettings } from "../store";
 import { api } from "../api/tauri";
 import { Toggle } from "../components/ui/Toggle";
 import { Button } from "../components/ui/Button";
-import { t } from "../i18n";
+import { t, ti } from "../i18n";
 import type { AppSettings } from "../store/types";
 import styles from "./Settings.module.css";
 
@@ -15,6 +15,9 @@ export function Settings() {
   const [error, setError] = createSignal<string | null>(null);
   const [clearingLogs, setClearingLogs] = createSignal(false);
   const [clearedCount, setClearedCount] = createSignal<number | null>(null);
+  const [exporting, setExporting] = createSignal(false);
+  const [importing, setImporting] = createSignal(false);
+  const [configMsg, setConfigMsg] = createSignal<{ type: "ok" | "err"; text: string } | null>(null);
 
   const [appVersion, setAppVersion] = createSignal("0.1.0");
   const [checkingUpdate, setCheckingUpdate] = createSignal(false);
@@ -77,6 +80,26 @@ export function Settings() {
       setUpdateError(e?.message ?? t("set_update_err"));
       setInstallingUpdate(false);
     }
+  };
+
+  const handleExport = async () => {
+    setExporting(true); setConfigMsg(null);
+    try {
+      await api.config.export();
+      setConfigMsg({ type: "ok", text: t("set_config_exported") });
+    } catch (e: any) {
+      if (e?.message !== "cancelled") setConfigMsg({ type: "err", text: e?.message ?? t("set_config_err") });
+    } finally { setExporting(false); }
+  };
+
+  const handleImport = async () => {
+    setImporting(true); setConfigMsg(null);
+    try {
+      const result = await api.config.import();
+      setConfigMsg({ type: "ok", text: ti("set_config_imported_ok", { s: result.sources_imported, d: result.destinations_imported }) });
+    } catch (e: any) {
+      if (e?.message !== "cancelled") setConfigMsg({ type: "err", text: e?.message ?? t("set_config_err") });
+    } finally { setImporting(false); }
   };
 
   const handleClearLogs = async () => {
@@ -146,6 +169,34 @@ export function Settings() {
             <option value="en">English</option>
           </select>
         </div>
+      </div>
+
+      {/* Config Export / Import */}
+      <div class={styles.section}>
+        <div class={styles.sectionTitle}>{t("set_config_section")}</div>
+        <div class={styles.row}>
+          <div class={styles.rowInfo}>
+            <div class={styles.rowLabel}>{t("set_config_export")}</div>
+            <div class={styles.rowDesc}>{t("set_config_export_desc")}</div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={handleExport} disabled={exporting()}>
+            {exporting() ? t("set_config_exporting") : t("set_config_export")}
+          </Button>
+        </div>
+        <div class={styles.rowLast}>
+          <div class={styles.rowInfo}>
+            <div class={styles.rowLabel}>{t("set_config_import")}</div>
+            <div class={styles.rowDesc}>{t("set_config_import_desc")}</div>
+          </div>
+          <Button variant="ghost" size="sm" onClick={handleImport} disabled={importing()}>
+            {importing() ? t("set_config_importing") : t("set_config_import")}
+          </Button>
+        </div>
+        <Show when={configMsg()}>
+          <div class={`${styles.alert} ${configMsg()!.type === "ok" ? styles.alertSuccess : styles.alertError}`}>
+            {configMsg()!.text}
+          </div>
+        </Show>
       </div>
 
       {/* Logs */}

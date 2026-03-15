@@ -69,6 +69,16 @@ export async function initLicense(): Promise<void> {
   }
 }
 
+export async function deactivateLicense(): Promise<{ success: boolean; error?: string }> {
+  try {
+    await api.license.deactivate();
+    setStore("licenseStatus", "invalid");
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e?.message ?? "Deaktivasyon başarısız." };
+  }
+}
+
 export async function activateLicense(key: string): Promise<{ success: boolean; error?: string }> {
   try {
     const result = await api.license.activate(key);

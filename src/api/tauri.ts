@@ -56,6 +56,11 @@ export const api = {
     store: (key: string) => invoke<void>("store_license", { key }),
     getStored: () => invoke<string | null>("get_stored_license"),
     clear: () => invoke<void>("clear_license"),
+    deactivate: () => invoke<void>("deactivate_license"),
+  },
+  config: {
+    export: () => invoke<string>("export_config"),
+    import: () => invoke<{ sources_imported: number; destinations_imported: number; settings_applied: number }>("import_config"),
   },
   menu: {
     rebuild: (lang: string) => invoke<void>("rebuild_app_menu", { lang }),

@@ -6,8 +6,9 @@ import {
   TbOutlineLock,
   TbOutlineExternalLink,
   TbOutlineKey,
+  TbOutlineDeviceDesktopOff,
 } from "solid-icons/tb";
-import { store, activateLicense } from "../store";
+import { store, activateLicense, deactivateLicense } from "../store";
 import { api } from "../api/tauri";
 import { t, ti } from "../i18n";
 import styles from "./LicensePage.module.css";
@@ -33,6 +34,9 @@ export function LicensePage() {
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [success, setSuccess] = createSignal(false);
+  const [deactivating, setDeactivating] = createSignal(false);
+  const [deactivateError, setDeactivateError] = createSignal<string | null>(null);
+  const [confirmDeactivate, setConfirmDeactivate] = createSignal(false);
 
   onMount(async () => {
     try {
@@ -73,6 +77,18 @@ export function LicensePage() {
       setKey("");
     } else {
       setError(result.error ?? t("lic_activation_failed"));
+    }
+  };
+
+  const handleDeactivate = async () => {
+    if (!confirmDeactivate()) { setConfirmDeactivate(true); return; }
+    setDeactivating(true);
+    setDeactivateError(null);
+    const result = await deactivateLicense();
+    setDeactivating(false);
+    if (!result.success) {
+      setDeactivateError(result.error ?? t("lic_deactivate_fail"));
+      setConfirmDeactivate(false);
     }
   };
 
@@ -176,6 +192,29 @@ export function LicensePage() {
                 <div class={styles.hwBlock}>
                   <div class={styles.hwLabel}>{t("lic_hw_short")}</div>
                   <code class={styles.hwValue}>{hardwareId()}</code>
+                </div>
+                <div class={styles.deactivateBlock}>
+                  <p class={styles.deactivateHint}>{t("lic_deactivate_hint")}</p>
+                  <Show when={deactivateError()}>
+                    <div class={styles.errorMsg}>{deactivateError()}</div>
+                  </Show>
+                  <button
+                    class={styles.deactivateBtn}
+                    disabled={deactivating()}
+                    onClick={handleDeactivate}
+                  >
+                    <TbOutlineDeviceDesktopOff size={14} />
+                    {deactivating()
+                      ? t("lic_deactivating")
+                      : confirmDeactivate()
+                        ? t("lic_deactivate_confirm")
+                        : t("lic_deactivate_btn")}
+                  </button>
+                  <Show when={confirmDeactivate() && !deactivating()}>
+                    <button class={styles.cancelDeactivateBtn} onClick={() => setConfirmDeactivate(false)}>
+                      {t("btn_cancel")}
+                    </button>
+                  </Show>
                 </div>
               </div>
             }

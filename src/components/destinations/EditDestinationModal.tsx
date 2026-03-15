@@ -95,6 +95,7 @@ export function EditDestinationModal(props: Props) {
   return (
     <Modal
       open={props.open}
+      closeOnBackdrop={false}
       onClose={handleClose}
       title={t("edit_dest_title")}
       footer={

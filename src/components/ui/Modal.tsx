@@ -8,6 +8,7 @@ interface ModalProps {
   title: string;
   children: JSX.Element;
   footer?: JSX.Element;
+  closeOnBackdrop?: boolean;
 }
 
 export function Modal(props: ModalProps) {
@@ -15,7 +16,7 @@ export function Modal(props: ModalProps) {
     <Show when={props.open}>
       <div
         class={styles.overlay}
-        onClick={(e) => { if (e.target === e.currentTarget) props.onClose(); }}
+        onClick={(e) => { if ((props.closeOnBackdrop ?? true) && e.target === e.currentTarget) props.onClose(); }}
       >
         <div class={styles.dialog}>
           <div class={styles.header}>
