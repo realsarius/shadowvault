@@ -151,6 +151,28 @@
   color: var(--red);
 }
 
+.notifEmailRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.notifEmailInput {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  outline: none;
+  width: 200px;
+}
+
+.notifEmailInput:focus {
+  border-color: var(--accent);
+}
+
 .saveRow {
   display: flex;
   justify-content: flex-end;

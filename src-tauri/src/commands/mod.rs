@@ -7,3 +7,5 @@ pub mod updater;
 pub mod license;
 pub mod restore;
 pub mod config;
+pub mod notifications;
+pub mod preview;

@@ -174,6 +174,17 @@ impl CopyJob {
                 )
                 .await?;
 
+                // Send email notification (best-effort, non-blocking)
+                {
+                    let email_db = db.clone();
+                    let name = self.source.name.clone();
+                    tokio::spawn(async move {
+                        crate::notifications::send_backup_email(
+                            &email_db, &name, Some(files_copied), Some(bytes_copied), None,
+                        ).await;
+                    });
+                }
+
                 Ok(LogEntry {
                     id: log_id,
                     source_id: self.source.id.clone(),
@@ -204,6 +215,18 @@ impl CopyJob {
                     &db, &self.destination.id, ended_at, "Failed", next_run,
                 )
                 .await?;
+
+                // Send email notification (best-effort, non-blocking)
+                {
+                    let email_db = db.clone();
+                    let name = self.source.name.clone();
+                    let err_clone = error_msg.clone();
+                    tokio::spawn(async move {
+                        crate::notifications::send_backup_email(
+                            &email_db, &name, None, None, Some(&err_clone),
+                        ).await;
+                    });
+                }
 
                 Err(anyhow::anyhow!(error_msg))
             }

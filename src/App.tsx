@@ -1,5 +1,5 @@
 import { createEffect, createSignal, onMount, onCleanup, Switch, Match } from "solid-js";
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { api } from "./api/tauri";
 import { Layout } from "./components/layout/Layout";
 import { Dashboard } from "./pages/Dashboard";
@@ -17,6 +17,25 @@ export function App() {
   onMount(async () => {
     initStore();
     initLicense();
+
+    // Keyboard shortcuts
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      if (e.key === "n" || e.key === "N") {
+        e.preventDefault();
+        setStore("activePage", "sources");
+        emit("menu-open-add-source").catch(() => {});
+      }
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        for (const src of store.sources) {
+          api.jobs.runSourceNow(src.id).catch(() => {});
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", handleKeyDown));
 
     const unlisteners = await Promise.all([
       // About modal

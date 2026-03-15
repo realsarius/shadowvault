@@ -238,6 +238,22 @@ const tr = {
   lic_deactivated: "Lisans bu cihazdan kaldırıldı.",
   lic_deactivate_fail: "Kaldırma işlemi başarısız.",
 
+  // Backup preview
+  dest_preview: "Önizle",
+  prev_title: "Yedekleme Önizleme",
+  prev_loading: "Analiz ediliyor...",
+  prev_source: "Kaynak:",
+  prev_dest: "Hedef:",
+  prev_copy_count: "Kopyalanacak:",
+  prev_copy_size: "Toplam boyut:",
+  prev_skip_count: "Atlanacak (değişmemiş):",
+  prev_no_files: "Kopyalanacak dosya yok.",
+  prev_incremental_note: "Artımlı mod: yalnızca son yedekten bu yana değişen dosyalar.",
+  prev_and_more: "... ve {n} dosya daha",
+  prev_error: "Önizleme yüklenemedi.",
+  prev_file: "Dosya",
+  prev_size: "Boyut",
+
   // Config export/import
   set_config_section: "Yapılandırma Yedekleme",
   set_config_export: "Dışa Aktar",
@@ -249,6 +265,19 @@ const tr = {
   set_config_exported: "Yapılandırma dışa aktarıldı.",
   set_config_imported_ok: "İçe aktarıldı: {s} kaynak, {d} hedef.",
   set_config_err: "İşlem başarısız.",
+
+  // Email notifications
+  set_notif_section: "E-posta Bildirimleri",
+  set_notif_email: "Bildirim E-postası",
+  set_notif_email_desc: "Yedekleme tamamlandığında veya hata oluştuğunda bu adrese e-posta gönderilir.",
+  set_notif_email_ph: "ornek@domain.com",
+  set_notif_test: "Test Gönder",
+  set_notif_testing: "Gönderiliyor...",
+  set_notif_test_ok: "Test e-postası gönderildi.",
+  set_notif_test_fail: "Test e-postası gönderilemedi.",
+  set_notif_clear: "Temizle",
+  set_notif_saved: "E-posta adresi kaydedildi.",
+  set_notif_save_err: "E-posta adresi kaydedilemedi.",
 
   // Updater
   set_update_section: "Güncellemeler",
@@ -499,6 +528,22 @@ const en: Record<keyof typeof tr, string> = {
   lic_deactivated: "License removed from this device.",
   lic_deactivate_fail: "Removal failed.",
 
+  // Backup preview
+  dest_preview: "Preview",
+  prev_title: "Backup Preview",
+  prev_loading: "Analyzing...",
+  prev_source: "Source:",
+  prev_dest: "Destination:",
+  prev_copy_count: "Will copy:",
+  prev_copy_size: "Total size:",
+  prev_skip_count: "Unchanged (will skip):",
+  prev_no_files: "No files to copy.",
+  prev_incremental_note: "Incremental mode: only files changed since the last backup.",
+  prev_and_more: "... and {n} more",
+  prev_error: "Could not load preview.",
+  prev_file: "File",
+  prev_size: "Size",
+
   // Config export/import
   set_config_section: "Configuration Backup",
   set_config_export: "Export",
@@ -510,6 +555,19 @@ const en: Record<keyof typeof tr, string> = {
   set_config_exported: "Configuration exported.",
   set_config_imported_ok: "Imported: {s} sources, {d} destinations.",
   set_config_err: "Operation failed.",
+
+  // Email notifications
+  set_notif_section: "Email Notifications",
+  set_notif_email: "Notification Email",
+  set_notif_email_desc: "An email will be sent to this address when a backup completes or fails.",
+  set_notif_email_ph: "example@domain.com",
+  set_notif_test: "Send Test",
+  set_notif_testing: "Sending...",
+  set_notif_test_ok: "Test email sent.",
+  set_notif_test_fail: "Test email could not be sent.",
+  set_notif_clear: "Clear",
+  set_notif_saved: "Email address saved.",
+  set_notif_save_err: "Could not save email address.",
 
   // Updater
   set_update_section: "Updates",

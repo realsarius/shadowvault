@@ -4,6 +4,7 @@ import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { Toggle } from "../ui/Toggle";
 import { EditDestinationModal } from "./EditDestinationModal";
+import { PreviewModal } from "./PreviewModal";
 import { UpgradeModal } from "../../pages/License";
 import { t } from "../../i18n";
 import { api } from "../../api/tauri";
@@ -56,6 +57,7 @@ export function DestinationList(props: Props) {
   const [deletingId, setDeletingId] = createSignal<string | null>(null);
   const [runningId, setRunningId] = createSignal<string | null>(null);
   const [editingDest, setEditingDest] = createSignal<Destination | null>(null);
+  const [previewDestId, setPreviewDestId] = createSignal<string | null>(null);
   const [showUpgrade, setShowUpgrade] = createSignal(false);
 
   const isLicensed = () => store.licenseStatus === "valid";
@@ -159,6 +161,9 @@ export function DestinationList(props: Props) {
                     <Button variant="ghost" size="sm" onClick={() => handleRunNow(dest.id)} disabled={isRunning()}>
                       {isRunning() ? t("btn_running") : t("btn_run_now")}
                     </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setPreviewDestId(dest.id)}>
+                      {t("dest_preview")}
+                    </Button>
                     <Button variant="ghost" size="sm" onClick={() => setEditingDest(dest)}>
                       {t("btn_edit")}
                     </Button>
@@ -178,6 +183,12 @@ export function DestinationList(props: Props) {
         onClose={() => setEditingDest(null)}
         destination={editingDest()}
         onUpdated={() => { setEditingDest(null); props.onRefresh(); }}
+      />
+
+      <PreviewModal
+        open={previewDestId() !== null}
+        onClose={() => setPreviewDestId(null)}
+        destinationId={previewDestId()}
       />
 
       <UpgradeModal

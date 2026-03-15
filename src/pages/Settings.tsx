@@ -19,6 +19,11 @@ export function Settings() {
   const [importing, setImporting] = createSignal(false);
   const [configMsg, setConfigMsg] = createSignal<{ type: "ok" | "err"; text: string } | null>(null);
 
+  const [notifEmail, setNotifEmail] = createSignal("");
+  const [savingEmail, setSavingEmail] = createSignal(false);
+  const [testingEmail, setTestingEmail] = createSignal(false);
+  const [emailMsg, setEmailMsg] = createSignal<{ type: "ok" | "err"; text: string } | null>(null);
+
   const [appVersion, setAppVersion] = createSignal("0.1.0");
   const [checkingUpdate, setCheckingUpdate] = createSignal(false);
   const [installingUpdate, setInstallingUpdate] = createSignal(false);
@@ -41,8 +46,31 @@ export function Settings() {
       setLogRetentionDays(s.log_retention_days);
       setLanguage(s.language);
     }
+    const savedEmail = await api.settings.getValue("notification_email").catch(() => null);
+    if (savedEmail) setNotifEmail(savedEmail);
     try { setAppVersion(await getVersion()); } catch { /* ignore in dev */ }
   });
+
+  const handleSaveEmail = async () => {
+    setSavingEmail(true); setEmailMsg(null);
+    try {
+      await api.settings.setValue("notification_email", notifEmail().trim());
+      setEmailMsg({ type: "ok", text: t("set_notif_saved") });
+    } catch {
+      setEmailMsg({ type: "err", text: t("set_notif_save_err") });
+    } finally { setSavingEmail(false); }
+  };
+
+  const handleTestEmail = async () => {
+    if (!notifEmail().trim()) return;
+    setTestingEmail(true); setEmailMsg(null);
+    try {
+      await api.notifications.sendTest(notifEmail().trim());
+      setEmailMsg({ type: "ok", text: t("set_notif_test_ok") });
+    } catch (e: any) {
+      setEmailMsg({ type: "err", text: `${t("set_notif_test_fail")} ${e?.message ?? ""}`.trim() });
+    } finally { setTestingEmail(false); }
+  };
 
   const handleSave = async () => {
     setSaving(true); setError(null); setSaved(false);
@@ -169,6 +197,37 @@ export function Settings() {
             <option value="en">English</option>
           </select>
         </div>
+      </div>
+
+      {/* Email Notifications */}
+      <div class={styles.section}>
+        <div class={styles.sectionTitle}>{t("set_notif_section")}</div>
+        <div class={styles.rowLast}>
+          <div class={styles.rowInfo}>
+            <div class={styles.rowLabel}>{t("set_notif_email")}</div>
+            <div class={styles.rowDesc}>{t("set_notif_email_desc")}</div>
+          </div>
+          <div class={styles.notifEmailRow}>
+            <input
+              class={styles.notifEmailInput}
+              type="email"
+              placeholder={t("set_notif_email_ph")}
+              value={notifEmail()}
+              onInput={(e) => { setNotifEmail(e.currentTarget.value); setEmailMsg(null); }}
+            />
+            <Button variant="ghost" size="sm" onClick={handleSaveEmail} disabled={savingEmail()}>
+              {savingEmail() ? t("btn_saving") : t("btn_save")}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={handleTestEmail} disabled={testingEmail() || !notifEmail().trim()}>
+              {testingEmail() ? t("set_notif_testing") : t("set_notif_test")}
+            </Button>
+          </div>
+        </div>
+        <Show when={emailMsg()}>
+          <div class={`${styles.alert} ${emailMsg()!.type === "ok" ? styles.alertSuccess : styles.alertError}`}>
+            {emailMsg()!.text}
+          </div>
+        </Show>
       </div>
 
       {/* Config Export / Import */}

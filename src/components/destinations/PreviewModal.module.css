@@ -1,0 +1,151 @@
+.loading {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 24px 0;
+}
+
+.error {
+  background: rgba(255, 77, 77, 0.1);
+  border: 1px solid var(--red);
+  color: var(--red);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.summary {
+  background: var(--bg-inset, var(--bg-surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.summaryRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.summaryLabel {
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+.summaryValue {
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+.summaryMono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.summaryDivider {
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
+
+.skipped {
+  color: var(--text-muted);
+}
+
+.incrNote {
+  font-size: 11px;
+  color: var(--accent);
+  padding: 6px 10px;
+  background: rgba(var(--accent-rgb, 99, 179, 237), 0.08);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(var(--accent-rgb, 99, 179, 237), 0.2);
+}
+
+.empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 16px 0;
+}
+
+.tableWrap {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table thead {
+  position: sticky;
+  top: 0;
+  background: var(--bg-surface);
+}
+
+.table thead tr {
+  border-bottom: 1px solid var(--border);
+}
+
+.thFile, .thSize {
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.thSize {
+  text-align: right;
+  white-space: nowrap;
+  width: 80px;
+}
+
+.table tbody tr {
+  border-bottom: 1px solid var(--border);
+}
+
+.table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.table tbody tr:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.04));
+}
+
+.tdFile {
+  padding: 5px 10px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  word-break: break-all;
+}
+
+.tdSize {
+  padding: 5px 10px;
+  color: var(--text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.moreNote {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: center;
+  border-top: 1px solid var(--border);
+}

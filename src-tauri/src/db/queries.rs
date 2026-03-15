@@ -128,6 +128,55 @@ pub async fn delete_source(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::Result<Option<Destination>> {
+    let row = sqlx::query(
+        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run
+         FROM destinations WHERE id = ?"
+    )
+    .bind(dest_id)
+    .fetch_optional(pool)
+    .await?;
+
+    match row {
+        None => Ok(None),
+        Some(row) => {
+            use sqlx::Row;
+            let id: String = row.try_get("id")?;
+            let source_id: String = row.try_get("source_id")?;
+            let path: String = row.try_get("path")?;
+            let schedule_json: String = row.try_get("schedule_json")?;
+            let retention_json: String = row.try_get("retention_json")?;
+            let exclusions_json: String = row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
+            let enabled_int: i64 = row.try_get("enabled")?;
+            let incremental_int: i64 = row.try_get("incremental").unwrap_or(0);
+            let last_run_str: Option<String> = row.try_get("last_run")?;
+            let last_status_str: Option<String> = row.try_get("last_status")?;
+            let next_run_str: Option<String> = row.try_get("next_run")?;
+
+            let schedule: crate::models::schedule::Schedule = serde_json::from_str(&schedule_json)?;
+            let retention: crate::models::schedule::RetentionPolicy = serde_json::from_str(&retention_json)?;
+            let exclusions: Vec<String> = serde_json::from_str(&exclusions_json).unwrap_or_default();
+            let last_run = last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+            let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
+            let next_run = next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
+            Ok(Some(Destination {
+                id,
+                source_id,
+                path,
+                schedule,
+                retention,
+                exclusions,
+                enabled: enabled_int != 0,
+                incremental: incremental_int != 0,
+                last_run,
+                last_status,
+                next_run,
+            }))
+        }
+    }
+}
+
 pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow::Result<()> {
     let schedule_json = serde_json::to_string(&dest.schedule)?;
     let retention_json = serde_json::to_string(&dest.retention)?;

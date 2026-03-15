@@ -172,6 +172,8 @@ pub fn run() {
             commands::restore::restore_backup,
             commands::config::export_config,
             commands::config::import_config,
+            commands::notifications::send_test_email,
+            commands::preview::preview_backup,
             rebuild_app_menu,
         ])
         .run(tauri::generate_context!())

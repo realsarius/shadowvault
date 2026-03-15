@@ -70,6 +70,23 @@ export interface DiskInfo {
   path: string;
 }
 
+export interface PreviewFile {
+  rel_path: string;
+  size_bytes: number;
+  will_copy: boolean;
+}
+
+export interface BackupPreview {
+  files: PreviewFile[];
+  copy_count: number;
+  copy_bytes: number;
+  skip_count: number;
+  total_count: number;
+  source_name: string;
+  dest_path: string;
+  incremental: boolean;
+}
+
 export interface CopyProgress {
   destination_id: string;
   files_done: number;

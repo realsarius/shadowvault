@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Destination, LogEntry, AppSettings, ScheduleType, RetentionPolicy } from "../store/types";
+import type { Source, Destination, LogEntry, AppSettings, ScheduleType, RetentionPolicy, BackupPreview } from "../store/types";
 
 export const api = {
   sources: {
@@ -61,6 +61,12 @@ export const api = {
   config: {
     export: () => invoke<string>("export_config"),
     import: () => invoke<{ sources_imported: number; destinations_imported: number; settings_applied: number }>("import_config"),
+  },
+  preview: {
+    backup: (destinationId: string) => invoke<BackupPreview>("preview_backup", { destinationId }),
+  },
+  notifications: {
+    sendTest: (to: string) => invoke<void>("send_test_email", { to }),
   },
   menu: {
     rebuild: (lang: string) => invoke<void>("rebuild_app_menu", { lang }),
