@@ -38,8 +38,30 @@ impl CopyJob {
 
         let destination_path_str = version_path.to_string_lossy().to_string();
 
-        // Attempt the copy
-        let copy_result = self.do_copy(&version_path).await;
+        // Check disk space before attempting copy
+        let copy_result = match self.check_disk_space() {
+            Err(e) => Err(e),
+            Ok(()) => {
+                // Retry up to 3 times with 5s delay for transient errors
+                let mut result = Err(anyhow::anyhow!("Copy did not start"));
+                for attempt in 1u32..=3 {
+                    result = self.do_copy(&version_path).await;
+                    if result.is_ok() {
+                        break;
+                    }
+                    if attempt < 3 {
+                        log::warn!(
+                            "Copy attempt {}/3 failed for destination {}: {}, retrying in 5s...",
+                            attempt,
+                            self.destination.id,
+                            result.as_ref().unwrap_err()
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                }
+                result
+            }
+        };
 
         let ended_at = Utc::now();
 
@@ -123,6 +145,46 @@ impl CopyJob {
                 Err(anyhow::anyhow!(error_msg))
             }
         }
+    }
+
+    fn check_disk_space(&self) -> anyhow::Result<()> {
+        use sysinfo::Disks;
+
+        // Estimate source size
+        let source_size: u64 = match &self.source.source_type {
+            SourceType::File => std::fs::metadata(&self.source.path)
+                .map(|m| m.len())
+                .unwrap_or(0),
+            SourceType::Directory => count_dir_stats(std::path::Path::new(&self.source.path))
+                .map(|(bytes, _)| bytes as u64)
+                .unwrap_or(0),
+        };
+
+        if source_size == 0 {
+            return Ok(());
+        }
+
+        let disks = Disks::new_with_refreshed_list();
+        let dest = std::path::Path::new(&self.destination.path);
+
+        let available = disks
+            .iter()
+            .filter(|d| dest.starts_with(d.mount_point()))
+            .max_by_key(|d| d.mount_point().components().count())
+            .map(|d| d.available_space())
+            .unwrap_or(u64::MAX);
+
+        // Require source size + 10% buffer
+        let required = source_size + source_size / 10;
+        if available < required {
+            anyhow::bail!(
+                "Disk space insufficient: need {} bytes, only {} available at destination",
+                required,
+                available
+            );
+        }
+
+        Ok(())
     }
 
     async fn do_copy(&self, version_path: &std::path::Path) -> anyhow::Result<(i64, i32)> {

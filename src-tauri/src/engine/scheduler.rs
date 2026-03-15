@@ -17,6 +17,33 @@ pub struct Scheduler {
     tasks: HashMap<String, AbortHandle>,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_next_cron_duration_every_minute_is_under_70s() {
+        // "0 * * * * * *" fires every minute — next fire must be ≤ 60s away
+        let d = next_cron_duration("0 * * * * * *");
+        assert!(d.as_secs() <= 60, "expected ≤ 60s, got {:?}", d);
+        assert!(d.as_millis() > 0, "duration must be positive");
+    }
+
+    #[test]
+    fn test_next_cron_duration_invalid_expression_returns_fallback() {
+        let d = next_cron_duration("not_a_cron_expression");
+        assert_eq!(d, Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn test_next_cron_duration_hourly_is_within_one_hour() {
+        // "0 0 * * * * *" fires at the start of each hour
+        let d = next_cron_duration("0 0 * * * * *");
+        assert!(d.as_secs() <= 3600, "expected ≤ 3600s, got {:?}", d);
+        assert!(d.as_millis() > 0, "duration must be positive");
+    }
+}
+
 impl Default for Scheduler {
     fn default() -> Self {
         Self::new()
@@ -131,7 +158,18 @@ impl Scheduler {
                     let app_handle_clone = app_handle.clone();
                     let dest_id_inner = dest.id.clone();
 
+                    let sched_src_path = source_clone.path.clone();
+                    let sched_dst_path = dest_clone.path.clone();
+                    let sched_dest_id_start = dest_id_inner.clone();
+                    let sched_ah_start = app_handle_clone.clone();
+
                     let job_handle = tokio::task::spawn(async move {
+                        let _ = sched_ah_start.emit("copy-started", serde_json::json!({
+                            "destination_id": sched_dest_id_start,
+                            "source_path": sched_src_path,
+                            "destination_path": sched_dst_path,
+                        }));
+
                         let job = CopyJob {
                             source: source_clone,
                             destination: dest_clone,
@@ -152,6 +190,7 @@ impl Scheduler {
                                     dest_id_inner,
                                     e
                                 );
+                                crate::tray::set_tray_state(&app_handle_clone, "error");
                                 let payload = serde_json::json!({
                                     "destination_id": dest_id_inner,
                                     "error": e.to_string()

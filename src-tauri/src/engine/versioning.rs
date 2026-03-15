@@ -46,6 +46,20 @@ fn find_next_index(destination_base: &str, source_name: &str) -> u32 {
     max_index + 1
 }
 
+/// Returns the total bytes and file count for a directory (or 0,0 if it doesn't exist yet).
+/// Used in tests without the private `count_dir_stats` from copier.rs.
+#[cfg(test)]
+fn dir_entry_count(base: &std::path::Path, prefix: &str) -> usize {
+    std::fs::read_dir(base)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_name().to_string_lossy().starts_with(prefix))
+                .count()
+        })
+        .unwrap_or(0)
+}
+
 pub async fn apply_retention(
     destination_base: &str,
     source_name: &str,
@@ -99,4 +113,99 @@ pub async fn apply_retention(
     }
 
     Ok(deleted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn fixed_now() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2024, 1, 15, 14, 30, 0).unwrap()
+    }
+
+    #[test]
+    fn test_timestamp_naming() {
+        let path = compute_version_path("/backups", "mydata", &VersionNaming::Timestamp, fixed_now());
+        assert_eq!(
+            path,
+            std::path::PathBuf::from("/backups/mydata_2024-01-15T14-30-00Z")
+        );
+    }
+
+    #[test]
+    fn test_overwrite_naming() {
+        let path = compute_version_path("/backups", "mydata", &VersionNaming::Overwrite, fixed_now());
+        assert_eq!(path, std::path::PathBuf::from("/backups/mydata"));
+    }
+
+    #[test]
+    fn test_index_naming_starts_at_001_when_empty() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let base = tmp.path().to_str().unwrap();
+        let path = compute_version_path(base, "mydata", &VersionNaming::Index, fixed_now());
+        assert!(
+            path.to_string_lossy().ends_with("mydata_001"),
+            "Expected mydata_001, got {:?}",
+            path
+        );
+    }
+
+    #[test]
+    fn test_index_naming_increments_existing() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("mydata_003")).unwrap();
+        let base = tmp.path().to_str().unwrap();
+        let path = compute_version_path(base, "mydata", &VersionNaming::Index, fixed_now());
+        assert!(
+            path.to_string_lossy().ends_with("mydata_004"),
+            "Expected mydata_004, got {:?}",
+            path
+        );
+    }
+
+    #[tokio::test]
+    async fn test_retention_removes_oldest() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let base = tmp.path().to_str().unwrap();
+
+        for i in 1..=5 {
+            std::fs::create_dir(tmp.path().join(format!("mydata_{:03}", i))).unwrap();
+        }
+
+        let deleted = apply_retention(base, "mydata", 3).await.unwrap();
+        assert_eq!(deleted, 2);
+        assert!(!tmp.path().join("mydata_001").exists());
+        assert!(!tmp.path().join("mydata_002").exists());
+        assert!(tmp.path().join("mydata_003").exists());
+        assert!(tmp.path().join("mydata_004").exists());
+        assert!(tmp.path().join("mydata_005").exists());
+    }
+
+    #[tokio::test]
+    async fn test_retention_no_op_under_limit() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let base = tmp.path().to_str().unwrap();
+
+        for i in 1..=3 {
+            std::fs::create_dir(tmp.path().join(format!("mydata_{:03}", i))).unwrap();
+        }
+
+        let deleted = apply_retention(base, "mydata", 5).await.unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(dir_entry_count(tmp.path(), "mydata_"), 3);
+    }
+
+    #[tokio::test]
+    async fn test_retention_zero_max_is_no_op() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let base = tmp.path().to_str().unwrap();
+
+        for i in 1..=10 {
+            std::fs::create_dir(tmp.path().join(format!("mydata_{:03}", i))).unwrap();
+        }
+
+        let deleted = apply_retention(base, "mydata", 0).await.unwrap();
+        assert_eq!(deleted, 0);
+    }
 }

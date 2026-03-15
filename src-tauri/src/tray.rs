@@ -1,10 +1,75 @@
+use std::sync::OnceLock;
 use std::sync::atomic::Ordering;
 
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent, TrayIconId},
     AppHandle, Emitter, Manager,
 };
+
+static ICON_NORMAL_RGBA: &[u8] = include_bytes!("../icons/tray_normal.rgba");
+static ICON_PAUSED_RGBA: &[u8] = include_bytes!("../icons/tray_paused.rgba");
+static ICON_ERROR_RGBA:  &[u8] = include_bytes!("../icons/tray_error.rgba");
+
+static TRAY_ID: OnceLock<TrayIconId> = OnceLock::new();
+
+fn make_icon(rgba: &'static [u8]) -> tauri::image::Image<'static> {
+    tauri::image::Image::new(rgba, 32, 32)
+}
+
+pub fn set_tray_state(app: &AppHandle, state: &str) {
+    let Some(id) = TRAY_ID.get() else { return };
+    let Some(tray) = app.tray_by_id(id) else { return };
+    let rgba = match state {
+        "paused" => ICON_PAUSED_RGBA,
+        "error"  => ICON_ERROR_RGBA,
+        _        => ICON_NORMAL_RGBA,
+    };
+    let _ = tray.set_icon(Some(make_icon(rgba)));
+    let tooltip = match state {
+        "paused" => "ShadowVault (Duraklatıldı)",
+        "error"  => "ShadowVault (Hata)",
+        _        => "ShadowVault",
+    };
+    let _ = tray.set_tooltip(Some(tooltip));
+}
+
+async fn graceful_shutdown(app: &AppHandle) {
+    use std::time::{Duration, Instant};
+
+    if let Some(state) = app.try_state::<crate::AppState>() {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        log::info!(
+            "Graceful shutdown: waiting for {} running jobs...",
+            state.running_jobs.len()
+        );
+
+        while !state.running_jobs.is_empty() {
+            if Instant::now() >= deadline {
+                log::warn!(
+                    "Shutdown timeout: aborting {} remaining jobs",
+                    state.running_jobs.len()
+                );
+                let ids: Vec<String> = state.running_jobs.iter().map(|e| e.key().clone()).collect();
+                for id in ids {
+                    if let Some((_, handle)) = state.running_jobs.remove(&id) {
+                        handle.abort();
+                    }
+                }
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+
+        match crate::db::queries::cancel_running_logs(&state.db, chrono::Utc::now()).await {
+            Ok(n) if n > 0 => log::info!("Marked {} running logs as Cancelled on shutdown", n),
+            Err(e) => log::warn!("Failed to cancel running logs on shutdown: {}", e),
+            _ => {}
+        }
+    }
+
+    app.exit(0);
+}
 
 pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let status = MenuItem::with_id(app, "status", "● ShadowVault Aktif", false, None::<&str>)?;
@@ -26,10 +91,11 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         &status, &sep1, &run_all, &pause, &sep2, &show, &sep3, &quit,
     ])?;
 
-    TrayIconBuilder::new()
+    let tray = TrayIconBuilder::new()
+        .icon(make_icon(ICON_NORMAL_RGBA))
         .menu(&menu)
         .tooltip("ShadowVault")
-        .on_menu_event(move |app, event| match event.id.as_ref() {
+        .on_menu_event(move |app: &AppHandle, event: tauri::menu::MenuEvent| match event.id.as_ref() {
             "run_all" => {
                 if let Some(state) = app.try_state::<crate::AppState>() {
                     let db = state.db.clone();
@@ -47,8 +113,17 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                                     let ah = app_handle.clone();
                                     let dest_id_spawn = dest.id.clone();
                                     let dest_id_insert = dest.id.clone();
+                                    let src_path = source.path.clone();
+                                    let dst_path = dest.path.clone();
+                                    let ah_start = ah.clone();
+                                    let dest_id_start = dest_id_spawn.clone();
 
                                     let handle = tokio::task::spawn(async move {
+                                        let _ = ah_start.emit("copy-started", serde_json::json!({
+                                            "destination_id": dest_id_start,
+                                            "source_path": src_path,
+                                            "destination_path": dst_path,
+                                        }));
                                         let job = crate::engine::copier::CopyJob {
                                             source,
                                             destination: dest,
@@ -59,6 +134,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                                                 let _ = ah.emit("copy-completed", &entry);
                                             }
                                             Err(e) => {
+                                                crate::tray::set_tray_state(&ah, "error");
                                                 let _ = ah.emit(
                                                     "copy-error",
                                                     serde_json::json!({
@@ -88,6 +164,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                         "scheduler-status",
                         serde_json::json!({ "paused": now_paused }),
                     );
+                    set_tray_state(app, if now_paused { "paused" } else { "normal" });
                     log::info!("Scheduler {} via tray", if now_paused { "paused" } else { "resumed" });
                 }
             }
@@ -98,11 +175,14 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                 }
             }
             "quit" => {
-                app.exit(0);
+                let app_clone = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    graceful_shutdown(&app_clone).await;
+                });
             }
             _ => {}
         })
-        .on_tray_icon_event(|tray, event| {
+        .on_tray_icon_event(|tray: &tauri::tray::TrayIcon, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
@@ -117,6 +197,8 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
             }
         })
         .build(app)?;
+
+    let _ = TRAY_ID.set(tray.id().clone());
 
     Ok(())
 }

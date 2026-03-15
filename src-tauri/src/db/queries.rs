@@ -377,6 +377,21 @@ pub async fn update_log_entry_completed(
     Ok(())
 }
 
+pub async fn cancel_running_logs(
+    pool: &SqlitePool,
+    ended_at: DateTime<Utc>,
+) -> anyhow::Result<u64> {
+    let result = sqlx::query(
+        "UPDATE copy_logs SET status = 'Cancelled', ended_at = ?, error_message = 'Application shutdown'
+         WHERE status = 'Running'"
+    )
+    .bind(ended_at.to_rfc3339())
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected())
+}
+
 pub async fn get_logs(
     pool: &SqlitePool,
     source_id: Option<&str>,
