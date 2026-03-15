@@ -42,4 +42,13 @@ export const api = {
     check: () => invoke<{ available: boolean; version: string | null; body: string | null }>("check_update"),
     install: () => invoke<void>("install_update"),
   },
+  license: {
+    getHardwareId: () => invoke<string>("get_hardware_id"),
+    store: (key: string) => invoke<void>("store_license", { key }),
+    getStored: () => invoke<string | null>("get_stored_license"),
+    clear: () => invoke<void>("clear_license"),
+  },
+  menu: {
+    rebuild: (lang: string) => invoke<void>("rebuild_app_menu", { lang }),
+  },
 };

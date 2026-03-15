@@ -1,4 +1,5 @@
 import { createSignal, Show } from "solid-js";
+import { TbOutlineAlertTriangle } from "solid-icons/tb";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { SchedulePicker } from "../schedule/SchedulePicker";
@@ -109,7 +110,7 @@ export function AddDestinationModal(props: Props) {
         <Show when={availBytes() !== null}>
           <div class={styles.diskInfo} data-low={String((availBytes() ?? 0) < LOW_SPACE_THRESHOLD)}>
             <Show when={(availBytes() ?? 0) < LOW_SPACE_THRESHOLD}>
-              <span>⚠ {t("add_dest_low_space")} </span>
+              <span style={{ display: "inline-flex", "align-items": "center", gap: "4px" }}><TbOutlineAlertTriangle size={13} /> {t("add_dest_low_space")} </span>
             </Show>
             {t("add_dest_avail_space")} {formatBytes(availBytes()!)}
           </div>

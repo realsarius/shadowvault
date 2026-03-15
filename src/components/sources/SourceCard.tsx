@@ -1,3 +1,4 @@
+import { TbOutlineFolder, TbOutlineFile } from "solid-icons/tb";
 import { Badge } from "../ui/Badge";
 import { t } from "../../i18n";
 import type { Source } from "../../store/types";
@@ -10,8 +11,6 @@ interface Props {
 }
 
 export function SourceCard(props: Props) {
-  const icon = () => props.source.source_type === "Directory" ? "📁" : "📄";
-
   return (
     <button
       class={styles.card}
@@ -20,7 +19,11 @@ export function SourceCard(props: Props) {
     >
       <div class={styles.row}>
         <div class={styles.nameRow}>
-          <span class={styles.icon}>{icon()}</span>
+          <span class={styles.icon}>
+            {props.source.source_type === "Directory"
+              ? <TbOutlineFolder size={15} />
+              : <TbOutlineFile size={15} />}
+          </span>
           <span class={styles.name}>{props.source.name}</span>
         </div>
         <Badge variant={props.source.enabled ? "success" : "neutral"}>

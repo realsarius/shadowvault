@@ -1,4 +1,5 @@
 import { createSignal, For, Show, createMemo } from "solid-js";
+import { TbOutlineClipboardList } from "solid-icons/tb";
 import { Badge } from "../ui/Badge";
 import { t } from "../../i18n";
 import type { LogEntry, Source, JobStatus } from "../../store/types";
@@ -100,7 +101,7 @@ export function LogPanel(props: Props) {
       <div class={styles.tableWrapper}>
         <Show when={filtered().length === 0}>
           <div class={styles.empty}>
-            <div class={styles.emptyIcon}>📋</div>
+            <div class={styles.emptyIcon}><TbOutlineClipboardList size={32} /></div>
             {t("log_empty")}
           </div>
         </Show>

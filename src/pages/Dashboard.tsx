@@ -1,4 +1,5 @@
 import { createMemo, For, Show } from "solid-js";
+import { TbOutlineFolder, TbOutlineFile, TbOutlineArrowRight } from "solid-icons/tb";
 import { store } from "../store";
 import { api } from "../api/tauri";
 import { Badge } from "../components/ui/Badge";
@@ -112,7 +113,7 @@ export function Dashboard() {
               const isRunning = () => source.destinations.some((d) => store.runningJobs.has(d.id));
               return (
                 <div class={styles.sourceRow}>
-                  <span class={styles.sourceIcon}>{source.source_type === "Directory" ? "📁" : "📄"}</span>
+                  <span class={styles.sourceIcon}>{source.source_type === "Directory" ? <TbOutlineFolder size={16} /> : <TbOutlineFile size={16} />}</span>
                   <div class={styles.sourceInfo}>
                     <div class={styles.sourceName}>{source.name}</div>
                     <div class={styles.sourcePath}>{source.path}</div>
@@ -150,7 +151,7 @@ export function Dashboard() {
               <div class={styles.activityRow}>
                 <Badge variant={statusToVariant(log.status)}>{statusLabel(log.status)}</Badge>
                 <span class={styles.activitySource}>{sourceMap()[log.source_id] ?? "—"}</span>
-                <span class={styles.activityDest}>→ {log.destination_path}</span>
+                <span class={styles.activityDest} style={{ display: "inline-flex", "align-items": "center", gap: "4px" }}><TbOutlineArrowRight size={13} /> {log.destination_path}</span>
                 <span class={styles.activityTime}>{timeAgo(log.started_at)}</span>
               </div>
             )}

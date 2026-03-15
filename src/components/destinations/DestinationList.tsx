@@ -1,4 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
+import { TbOutlineFolder, TbOutlineFile, TbOutlineArchive } from "solid-icons/tb";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { Toggle } from "../ui/Toggle";
@@ -75,7 +76,7 @@ export function DestinationList(props: Props) {
     <div class={styles.panel}>
       <div class={styles.header}>
         <div class={styles.headerLeft}>
-          <span class={styles.headerIcon}>{props.source.source_type === "Directory" ? "📁" : "📄"}</span>
+          <span class={styles.headerIcon}>{props.source.source_type === "Directory" ? <TbOutlineFolder size={16} /> : <TbOutlineFile size={16} />}</span>
           <div>
             <div class={styles.sourceName}>{props.source.name}</div>
             <div class={styles.sourcePath}>{props.source.path}</div>
@@ -87,7 +88,7 @@ export function DestinationList(props: Props) {
       <div class={styles.list}>
         <Show when={props.source.destinations.length === 0}>
           <div class={styles.empty}>
-            <div class={styles.emptyIcon}>🗂️</div>
+            <div class={styles.emptyIcon}><TbOutlineArchive size={32} /></div>
             {t("dest_empty")}
             <br />
             <span class={styles.emptyHint}>{t("dest_empty_hint")}</span>

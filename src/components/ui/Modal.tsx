@@ -1,4 +1,5 @@
 import { JSX, Show } from "solid-js";
+import { TbOutlineX } from "solid-icons/tb";
 import styles from "./Modal.module.css";
 
 interface ModalProps {
@@ -19,7 +20,7 @@ export function Modal(props: ModalProps) {
         <div class={styles.dialog}>
           <div class={styles.header}>
             <span class={styles.title}>{props.title}</span>
-            <button class={styles.closeBtn} onClick={props.onClose}>✕</button>
+            <button class={styles.closeBtn} onClick={props.onClose}><TbOutlineX size={16} /></button>
           </div>
           <div class={styles.body}>{props.children}</div>
           <Show when={props.footer}>
