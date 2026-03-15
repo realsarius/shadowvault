@@ -523,3 +523,13 @@ pub async fn upsert_setting(pool: &SqlitePool, key: &str, value: &str) -> anyhow
 
     Ok(())
 }
+
+pub async fn get_onchange_destinations(
+    pool: &SqlitePool,
+) -> anyhow::Result<Vec<(Source, Destination)>> {
+    let all = get_all_active_destinations(pool).await?;
+    Ok(all
+        .into_iter()
+        .filter(|(_, d)| matches!(d.schedule, Schedule::OnChange))
+        .collect())
+}

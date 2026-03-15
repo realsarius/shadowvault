@@ -48,7 +48,7 @@ pub async fn run_now(
     let dest_id_clone = destination_id.clone();
     let app_handle_clone = app_handle.clone();
 
-    let job_handle = tauri::async_runtime::spawn(async move {
+    let job_handle = tokio::task::spawn(async move {
         let job = CopyJob {
             source,
             destination: dest,
@@ -114,7 +114,7 @@ pub async fn run_source_now(
         let dest_id_clone = dest_id.clone();
         let app_handle_clone = app_handle.clone();
 
-        let job_handle = tauri::async_runtime::spawn(async move {
+        let job_handle = tokio::task::spawn(async move {
             let job = CopyJob {
                 source: source_clone,
                 destination: dest,

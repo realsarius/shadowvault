@@ -1,4 +1,4 @@
-use tauri::State;
+use tauri::{AppHandle, State};
 use serde_json::Value;
 use uuid::Uuid;
 use chrono::Utc;
@@ -58,27 +58,35 @@ pub async fn update_source(
 #[tauri::command]
 pub async fn delete_source(
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     id: String,
 ) -> Result<(), String> {
     // Cancel any scheduled tasks for this source's destinations
-    {
-        if let Ok(dests) = queries::get_destinations_for_source(&state.db, &id).await {
-            let mut scheduler = state.scheduler.lock().await;
-            for dest in dests {
-                scheduler.cancel(&dest.id);
-                state.running_jobs.remove(&dest.id);
-            }
+    if let Ok(dests) = queries::get_destinations_for_source(&state.db, &id).await {
+        let mut scheduler = state.scheduler.lock().await;
+        for dest in dests {
+            scheduler.cancel(&dest.id);
+            state.running_jobs.remove(&dest.id);
         }
     }
 
     queries::delete_source(&state.db, &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Restart watcher — source removed may have had OnChange destinations
+    let db = state.db.clone();
+    let running_jobs = state.running_jobs.clone();
+    let mut watcher = state.watcher.lock().await;
+    watcher.start(db, running_jobs, app_handle).await;
+
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn add_destination(
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     source_id: String,
     path: String,
     schedule: Value,
@@ -104,19 +112,28 @@ pub async fn add_destination(
         .await
         .map_err(|e| e.to_string())?;
 
+    // If this is an OnChange destination, restart watcher to pick it up
+    if matches!(dest.schedule, Schedule::OnChange) {
+        let db = state.db.clone();
+        let running_jobs = state.running_jobs.clone();
+        let mut watcher = state.watcher.lock().await;
+        watcher.start(db, running_jobs, app_handle).await;
+    }
+
     Ok(dest)
 }
 
 #[tauri::command]
 pub async fn update_destination(
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     id: String,
     path: String,
     schedule: Value,
     retention: Value,
     enabled: bool,
 ) -> Result<(), String> {
-    // Fetch the existing row to preserve source_id and run metadata
+    // Fetch existing row to preserve source_id and run metadata
     let dest_row = sqlx::query(
         "SELECT id, source_id, last_run, last_status, next_run FROM destinations WHERE id = ?",
     )
@@ -145,6 +162,8 @@ pub async fn update_destination(
     let next_run =
         next_run_str.and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok());
 
+    let is_onchange = matches!(schedule_parsed, Schedule::OnChange);
+
     let dest = Destination {
         id: id.clone(),
         source_id,
@@ -157,7 +176,7 @@ pub async fn update_destination(
         next_run,
     };
 
-    // Cancel existing scheduled task; it will be re-added on next reload
+    // Cancel existing scheduled task; re-added on next reload
     {
         let mut scheduler = state.scheduler.lock().await;
         scheduler.cancel(&id);
@@ -167,15 +186,38 @@ pub async fn update_destination(
         .await
         .map_err(|e| e.to_string())?;
 
+    // Restart watcher if schedule involves OnChange
+    if is_onchange {
+        let db = state.db.clone();
+        let running_jobs = state.running_jobs.clone();
+        let mut watcher = state.watcher.lock().await;
+        watcher.start(db, running_jobs, app_handle).await;
+    }
+
     Ok(())
 }
 
 #[tauri::command]
 pub async fn delete_destination(
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     id: String,
 ) -> Result<(), String> {
-    // Cancel any scheduled task for this destination
+    // Check if it was OnChange before deleting
+    let was_onchange = sqlx::query("SELECT schedule_json FROM destinations WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(state.db.as_ref())
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|row| {
+            let json: String = row.try_get("schedule_json").unwrap_or_default();
+            serde_json::from_str::<Schedule>(&json)
+                .map(|s| matches!(s, Schedule::OnChange))
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+
+    // Cancel scheduled task
     {
         let mut scheduler = state.scheduler.lock().await;
         scheduler.cancel(&id);
@@ -184,5 +226,15 @@ pub async fn delete_destination(
 
     queries::delete_destination(&state.db, &id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Restart watcher if it was an OnChange destination
+    if was_onchange {
+        let db = state.db.clone();
+        let running_jobs = state.running_jobs.clone();
+        let mut watcher = state.watcher.lock().await;
+        watcher.start(db, running_jobs, app_handle).await;
+    }
+
+    Ok(())
 }

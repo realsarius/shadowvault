@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
 use chrono::Utc;
 use tokio::task::AbortHandle;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
+
 use crate::models::{Source, Destination, Schedule};
 use crate::engine::copier::CopyJob;
 use crate::db::queries;
@@ -17,6 +20,28 @@ pub struct Scheduler {
 impl Default for Scheduler {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Calculates how long to sleep until the next cron fire time.
+fn next_cron_duration(expression: &str) -> Duration {
+    use std::str::FromStr;
+    match cron::Schedule::from_str(expression) {
+        Ok(sched) => match sched.upcoming(Utc).next() {
+            Some(next) => {
+                let ms = (next - Utc::now()).num_milliseconds();
+                if ms > 0 {
+                    Duration::from_millis(ms as u64)
+                } else {
+                    Duration::from_secs(1)
+                }
+            }
+            None => Duration::from_secs(3600),
+        },
+        Err(e) => {
+            log::error!("Invalid cron expression '{}': {}", expression, e);
+            Duration::from_secs(3600)
+        }
     }
 }
 
@@ -36,23 +61,20 @@ impl Scheduler {
         app_handle: AppHandle,
         paused: Arc<AtomicBool>,
     ) {
-        // Only schedule Interval and Cron schedules automatically
-        let interval_secs: u64 = match &dest.schedule {
-            Schedule::Interval { minutes } => *minutes as u64 * 60,
-            Schedule::Cron { .. } => 60, // check every minute for cron
+        // Only Interval and Cron schedules get background tasks
+        match &dest.schedule {
             Schedule::OnChange | Schedule::Manual => return,
-        };
+            _ => {}
+        }
 
         let dest_id = dest.id.clone();
-
-        // Cancel any existing task for this destination
         self.cancel(&dest_id);
 
         let schedule_clone = dest.schedule.clone();
         let last_run_clone = dest.last_run;
 
-        let task = tauri::async_runtime::spawn(async move {
-            // Determine initial sleep: if last_run is None or overdue, run immediately
+        let task = tokio::task::spawn(async move {
+            // Determine if we should run immediately or sleep first
             let should_run_immediately = match last_run_clone {
                 None => true,
                 Some(last_run) => match &schedule_clone {
@@ -75,16 +97,27 @@ impl Scheduler {
             };
 
             if !should_run_immediately {
-                tokio::time::sleep(tokio::time::Duration::from_secs(interval_secs)).await;
+                let initial_sleep = match &schedule_clone {
+                    Schedule::Interval { minutes } => {
+                        let elapsed = last_run_clone
+                            .map(|lr| (Utc::now() - lr).num_seconds())
+                            .unwrap_or(0);
+                        let remaining = (*minutes as i64 * 60) - elapsed;
+                        Duration::from_secs(remaining.max(1) as u64)
+                    }
+                    Schedule::Cron { expression } => next_cron_duration(expression),
+                    _ => return,
+                };
+                tokio::time::sleep(initial_sleep).await;
             }
 
             loop {
-                // Check paused flag; spin-wait until unpaused
+                // Spin-wait while paused
                 while paused.load(Ordering::SeqCst) {
-                    tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    tokio::time::sleep(Duration::from_secs(5)).await;
                 }
 
-                // Check if destination is already running
+                // Skip if destination is already running
                 if running_jobs.contains_key(&dest.id) {
                     log::info!(
                         "Destination {} is already running, skipping scheduled run",
@@ -98,7 +131,7 @@ impl Scheduler {
                     let app_handle_clone = app_handle.clone();
                     let dest_id_inner = dest.id.clone();
 
-                    let job_handle = tauri::async_runtime::spawn(async move {
+                    let job_handle = tokio::task::spawn(async move {
                         let job = CopyJob {
                             source: source_clone,
                             destination: dest_clone,
@@ -133,8 +166,15 @@ impl Scheduler {
                     running_jobs.insert(dest.id.clone(), job_handle.abort_handle());
                 }
 
-                // Sleep for the interval before the next run
-                tokio::time::sleep(tokio::time::Duration::from_secs(interval_secs)).await;
+                // Sleep until next scheduled run
+                let sleep_duration = match &schedule_clone {
+                    Schedule::Interval { minutes } => {
+                        Duration::from_secs(*minutes as u64 * 60)
+                    }
+                    Schedule::Cron { expression } => next_cron_duration(expression),
+                    _ => break,
+                };
+                tokio::time::sleep(sleep_duration).await;
             }
         });
 
