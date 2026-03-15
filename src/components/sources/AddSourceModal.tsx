@@ -1,9 +1,11 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, createEffect, Show } from "solid-js";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { SchedulePicker } from "../schedule/SchedulePicker";
+import { UpgradeModal } from "../../pages/License";
 import { t } from "../../i18n";
 import { api } from "../../api/tauri";
+import { store } from "../../store";
 import type { ScheduleType, RetentionPolicy, SourceType } from "../../store/types";
 import styles from "./AddSourceModal.module.css";
 
@@ -11,6 +13,8 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onCreated: () => void;
+  prefillPath?: string;
+  prefillType?: SourceType;
 }
 
 export function AddSourceModal(props: Props) {
@@ -24,6 +28,8 @@ export function AddSourceModal(props: Props) {
   const [naming, setNaming] = createSignal<"Timestamp" | "Index" | "Overwrite">("Timestamp");
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [showUpgrade, setShowUpgrade] = createSignal(false);
+  const isLicensed = () => store.licenseStatus === "valid";
 
   const retention = (): RetentionPolicy => ({ max_versions: maxVersions(), naming: naming() });
 
@@ -32,6 +38,13 @@ export function AddSourceModal(props: Props) {
     setDestPath(""); setSchedule({ type: "Interval", value: { minutes: 60 } });
     setMaxVersions(10); setNaming("Timestamp"); setSaving(false); setError(null);
   };
+
+  createEffect(() => {
+    if (props.open && props.prefillPath) {
+      setSourcePath(props.prefillPath);
+      setSourceType(props.prefillType ?? "Directory");
+    }
+  });
 
   const handleClose = () => { reset(); props.onClose(); };
 
@@ -74,6 +87,7 @@ export function AddSourceModal(props: Props) {
   const stepTitles = () => [t("add_src_step1"), t("add_src_step2"), t("add_src_step3")];
 
   return (
+    <>
     <Modal
       open={props.open}
       onClose={handleClose}
@@ -147,7 +161,12 @@ export function AddSourceModal(props: Props) {
         <div class={styles.field}>
           <label class={styles.label}>{t("add_dest_schedule")}</label>
           <div class={styles.scheduleBox}>
-            <SchedulePicker value={schedule()} onChange={setSchedule} />
+            <SchedulePicker
+            value={schedule()}
+            onChange={setSchedule}
+            isLicensed={isLicensed()}
+            onProRequired={() => setShowUpgrade(true)}
+          />
           </div>
         </div>
         <div class={styles.retentionRow}>
@@ -211,5 +230,13 @@ export function AddSourceModal(props: Props) {
         </div>
       </Show>
     </Modal>
+
+    <UpgradeModal
+      open={showUpgrade()}
+      onClose={() => setShowUpgrade(false)}
+      sourceCount={0}
+      subtitle={t("pro_schedule_sub")}
+    />
+    </>
   );
 }

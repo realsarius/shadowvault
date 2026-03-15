@@ -44,6 +44,14 @@ pub struct DiskInfo {
 }
 
 #[tauri::command]
+pub async fn check_path_type(path: String) -> Result<String, String> {
+    let p = std::path::Path::new(&path);
+    if p.is_dir() { Ok("Directory".to_string()) }
+    else if p.is_file() { Ok("File".to_string()) }
+    else { Err(format!("Path does not exist: {}", path)) }
+}
+
+#[tauri::command]
 pub async fn get_disk_info(path: String) -> Result<DiskInfo, String> {
     use sysinfo::Disks;
 

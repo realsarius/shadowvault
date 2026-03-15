@@ -184,7 +184,7 @@ export function Settings() {
           <div class={styles.rowInfo}>
             <div class={styles.rowLabel}>{t("set_about_version")}</div>
           </div>
-          <div style={{ display: "flex", "align-items": "center", gap: "10px" }}>
+          <div class={styles.aboutVersionRow}>
             <span class={styles.aboutValue}>v{appVersion()}</span>
             <Button variant="ghost" size="sm" onClick={() => emit("show-about")}>
               {t("set_about_section")}

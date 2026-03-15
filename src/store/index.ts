@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../api/tauri";
-import type { Source, LogEntry, AppSettings } from "./types";
+import type { Source, LogEntry, AppSettings, CopyProgress } from "./types";
 
 interface AppStore {
   sources: Source[];
@@ -15,6 +15,7 @@ interface AppStore {
   watcherWarning: string | null;
   licenseStatus: "checking" | "valid" | "invalid";
   sidebarCollapsed: boolean;
+  copyProgress: Record<string, CopyProgress>;
 }
 
 const [store, setStore] = createStore<AppStore>({
@@ -29,6 +30,7 @@ const [store, setStore] = createStore<AppStore>({
   watcherWarning: null,
   licenseStatus: "checking",
   sidebarCollapsed: false,
+  copyProgress: {},
 });
 
 export async function refreshSources() {
@@ -84,22 +86,22 @@ listen<{ destination_id: string }>("copy-started", (event) => {
   setStore("runningJobs", (set) => new Set([...set, event.payload.destination_id]));
 });
 
+listen<CopyProgress>("copy-progress", (event) => {
+  setStore("copyProgress", event.payload.destination_id, event.payload);
+});
+
 listen<{ destination_id: string; status: string }>("copy-completed", (event) => {
-  setStore("runningJobs", (set) => {
-    const next = new Set(set);
-    next.delete(event.payload.destination_id);
-    return next;
-  });
+  const id = event.payload.destination_id;
+  setStore("runningJobs", (set) => { const next = new Set(set); next.delete(id); return next; });
+  setStore("copyProgress", (prev) => { const next = { ...prev }; delete next[id]; return next; });
   refreshSources();
   refreshLogs();
 });
 
 listen<{ destination_id: string }>("copy-error", (event) => {
-  setStore("runningJobs", (set) => {
-    const next = new Set(set);
-    next.delete(event.payload.destination_id);
-    return next;
-  });
+  const id = event.payload.destination_id;
+  setStore("runningJobs", (set) => { const next = new Set(set); next.delete(id); return next; });
+  setStore("copyProgress", (prev) => { const next = { ...prev }; delete next[id]; return next; });
   refreshSources();
   refreshLogs();
 });

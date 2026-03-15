@@ -176,6 +176,7 @@ impl Scheduler {
                             source: source_clone,
                             destination: dest_clone,
                             trigger: trigger.clone(),
+                            app: Some(app_handle_clone.clone()),
                         };
 
                         match job.execute(db_clone).await {

@@ -103,10 +103,14 @@ pub async fn update_source(
     pool: &SqlitePool,
     id: &str,
     name: &str,
+    path: &str,
+    source_type: &str,
     enabled: bool,
 ) -> anyhow::Result<()> {
-    sqlx::query("UPDATE sources SET name = ?, enabled = ? WHERE id = ?")
+    sqlx::query("UPDATE sources SET name = ?, path = ?, source_type = ?, enabled = ? WHERE id = ?")
         .bind(name)
+        .bind(path)
+        .bind(source_type)
         .bind(if enabled { 1i64 } else { 0i64 })
         .bind(id)
         .execute(pool)

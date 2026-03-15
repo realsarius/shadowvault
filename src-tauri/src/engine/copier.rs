@@ -5,6 +5,8 @@ use sqlx::SqlitePool;
 use sha2::{Sha256, Digest};
 use globset::{Glob, GlobSetBuilder};
 
+use tauri::Emitter;
+
 use crate::models::{Source, Destination, SourceType, LogEntry};
 use crate::db::queries;
 use crate::engine::versioning;
@@ -13,6 +15,7 @@ pub struct CopyJob {
     pub source: Source,
     pub destination: Destination,
     pub trigger: String,
+    pub app: Option<tauri::AppHandle>,
 }
 
 /// System-owned directories that should never be used as backup destinations.
@@ -242,6 +245,17 @@ impl CopyJob {
         Ok(())
     }
 
+    fn emit_progress(&self, files_done: i32, files_total: i32, bytes_done: i64) {
+        if let Some(app) = &self.app {
+            let _ = app.emit("copy-progress", serde_json::json!({
+                "destination_id": &self.destination.id,
+                "files_done": files_done,
+                "files_total": files_total,
+                "bytes_done": bytes_done,
+            }));
+        }
+    }
+
     /// Returns (bytes_copied, files_copied, checksum_string)
     async fn do_copy(&self, version_path: &std::path::Path) -> anyhow::Result<(i64, i32, Option<String>)> {
         std::fs::create_dir_all(version_path)?;
@@ -256,6 +270,7 @@ impl CopyJob {
                     .ok_or_else(|| anyhow::anyhow!("Cannot determine file name from source path"))?;
                 let dest_file = version_path.join(file_name);
 
+                self.emit_progress(0, 1, 0);
                 let bytes = std::fs::copy(source_path, &dest_file)?;
 
                 // SHA-256 integrity check
@@ -268,12 +283,15 @@ impl CopyJob {
                     );
                 }
 
+                self.emit_progress(1, 1, bytes as i64);
                 Ok((bytes as i64, 1, Some(src_hash)))
             }
             SourceType::Directory => {
                 let source_path = std::path::Path::new(&self.source.path);
-                let mut total_bytes: i64 = 0;
-                let mut total_files: i32 = 0;
+
+                // Collect all entries first so we know totals for progress
+                let mut file_entries: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+                let mut dir_entries: Vec<std::path::PathBuf> = Vec::new();
 
                 for entry in walkdir::WalkDir::new(source_path) {
                     let entry = entry?;
@@ -281,29 +299,42 @@ impl CopyJob {
                         .strip_prefix(source_path)
                         .unwrap_or(entry.path());
 
-                    // Skip root entry
-                    if rel_path == std::path::Path::new("") {
-                        continue;
-                    }
-
-                    // Apply exclusion patterns
+                    if rel_path == std::path::Path::new("") { continue; }
                     if exclusion_set.is_match(rel_path) {
                         log::debug!("Excluded: {}", rel_path.display());
                         continue;
                     }
 
                     let dest_entry = version_path.join(rel_path);
-
                     if entry.file_type().is_dir() {
-                        std::fs::create_dir_all(&dest_entry)?;
+                        dir_entries.push(dest_entry);
                     } else if entry.file_type().is_file() {
-                        if let Some(parent) = dest_entry.parent() {
-                            std::fs::create_dir_all(parent)?;
-                        }
-                        let bytes = std::fs::copy(entry.path(), &dest_entry)?;
-                        total_bytes += bytes as i64;
-                        total_files += 1;
+                        file_entries.push((entry.path().to_path_buf(), dest_entry));
                     }
+                }
+
+                let files_total = file_entries.len() as i32;
+                self.emit_progress(0, files_total, 0);
+
+                // Create directories
+                for dir in &dir_entries {
+                    std::fs::create_dir_all(dir)?;
+                }
+
+                // Copy files with progress
+                let mut total_bytes: i64 = 0;
+                let mut total_files: i32 = 0;
+                let mut bytes_done: i64 = 0;
+
+                for (src_path, dst_path) in &file_entries {
+                    if let Some(parent) = dst_path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    let bytes = std::fs::copy(src_path, dst_path)?;
+                    total_bytes += bytes as i64;
+                    total_files += 1;
+                    bytes_done += bytes as i64;
+                    self.emit_progress(total_files, files_total, bytes_done);
                 }
 
                 // Verify: destination file count must match source

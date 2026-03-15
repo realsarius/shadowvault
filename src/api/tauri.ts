@@ -6,8 +6,8 @@ export const api = {
     getAll: () => invoke<Source[]>("get_sources"),
     create: (name: string, path: string, source_type: "File" | "Directory") =>
       invoke<Source>("create_source", { name, path, sourceType: source_type }),
-    update: (id: string, name: string, enabled: boolean) =>
-      invoke<void>("update_source", { id, name, enabled }),
+    update: (id: string, name: string, path: string, sourceType: "File" | "Directory", enabled: boolean) =>
+      invoke<void>("update_source", { id, name, path, sourceType, enabled }),
     delete: (id: string) => invoke<void>("delete_source", { id }),
   },
   destinations: {
@@ -37,6 +37,7 @@ export const api = {
     pickDirectory: () => invoke<string | null>("pick_directory"),
     pickFile: () => invoke<string | null>("pick_file"),
     getDiskInfo: (path: string) => invoke<{ total_bytes: number; available_bytes: number; path: string }>("get_disk_info", { path }),
+    checkPathType: (path: string) => invoke<string>("check_path_type", { path }),
   },
   settings: {
     get: () => invoke<AppSettings>("get_settings"),

@@ -151,7 +151,7 @@ export function Dashboard() {
               <div class={styles.activityRow}>
                 <Badge variant={statusToVariant(log.status)}>{statusLabel(log.status)}</Badge>
                 <span class={styles.activitySource}>{sourceMap()[log.source_id] ?? "—"}</span>
-                <span class={styles.activityDest} style={{ display: "inline-flex", "align-items": "center", gap: "4px" }}><TbOutlineArrowRight size={13} /> {log.destination_path}</span>
+                <span class={styles.activityDest}><TbOutlineArrowRight size={13} /> {log.destination_path}</span>
                 <span class={styles.activityTime}>{timeAgo(log.started_at)}</span>
               </div>
             )}

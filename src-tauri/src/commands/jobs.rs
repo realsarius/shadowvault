@@ -66,6 +66,7 @@ pub async fn run_now(
             source,
             destination: dest,
             trigger: trigger.clone(),
+            app: Some(app_handle_start.clone()),
         };
 
         match job.execute(db).await {
@@ -161,6 +162,7 @@ pub async fn run_source_now(
                 source: source_clone,
                 destination: dest,
                 trigger: trigger.clone(),
+                app: Some(app_handle_start2.clone()),
             };
 
             match job.execute(db).await {

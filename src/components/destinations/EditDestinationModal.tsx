@@ -1,20 +1,18 @@
-import { createSignal, Show } from "solid-js";
+import { createSignal, Show, createEffect } from "solid-js";
 import { TbOutlineAlertTriangle } from "solid-icons/tb";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { SchedulePicker } from "../schedule/SchedulePicker";
-import { UpgradeModal } from "../../pages/License";
 import { t } from "../../i18n";
 import { api } from "../../api/tauri";
-import { store } from "../../store";
-import type { ScheduleType, RetentionPolicy } from "../../store/types";
+import type { ScheduleType, RetentionPolicy, Destination } from "../../store/types";
 import styles from "./AddDestinationModal.module.css";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  sourceId: string;
-  onCreated: () => void;
+  destination: Destination | null;
+  onUpdated: () => void;
 }
 
 function formatBytes(bytes: number): string {
@@ -24,7 +22,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-export function AddDestinationModal(props: Props) {
+export function EditDestinationModal(props: Props) {
   const [destPath, setDestPath] = createSignal("");
   const [schedule, setSchedule] = createSignal<ScheduleType>({ type: "Interval", value: { minutes: 60 } });
   const [maxVersions, setMaxVersions] = createSignal(10);
@@ -33,28 +31,31 @@ export function AddDestinationModal(props: Props) {
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [availBytes, setAvailBytes] = createSignal<number | null>(null);
-  const [showUpgrade, setShowUpgrade] = createSignal(false);
-  const isLicensed = () => store.licenseStatus === "valid";
-  const LOW_SPACE_THRESHOLD = 500 * 1024 * 1024; // 500 MB
+  const LOW_SPACE_THRESHOLD = 500 * 1024 * 1024;
+
+  createEffect(() => {
+    if (props.destination) {
+      const d = props.destination;
+      setDestPath(d.path);
+      setSchedule(d.schedule);
+      setMaxVersions(d.retention.max_versions);
+      setNaming(d.retention.naming);
+      setExclusionsText(d.exclusions.join("\n"));
+      setError(null);
+      setAvailBytes(null);
+    }
+  });
 
   const retention = (): RetentionPolicy => ({ max_versions: maxVersions(), naming: naming() });
 
-  const reset = () => {
-    setDestPath(""); setSchedule({ type: "Interval", value: { minutes: 60 } });
-    setMaxVersions(10); setNaming("Timestamp"); setExclusionsText("");
-    setSaving(false); setError(null); setAvailBytes(null);
-  };
-
-  const handleClose = () => { reset(); props.onClose(); };
+  const handleClose = () => { setError(null); props.onClose(); };
 
   const checkDiskSpace = async (path: string) => {
     if (!path.trim()) { setAvailBytes(null); return; }
     try {
       const info = await api.fs.getDiskInfo(path);
       setAvailBytes(info.available_bytes);
-    } catch {
-      setAvailBytes(null);
-    }
+    } catch { setAvailBytes(null); }
   };
 
   const pickDest = async () => {
@@ -76,8 +77,15 @@ export function AddDestinationModal(props: Props) {
         .split("\n")
         .map((s) => s.trim())
         .filter(Boolean);
-      await api.destinations.add(props.sourceId, destPath(), schedule(), retention(), exclusions);
-      props.onCreated();
+      await api.destinations.update(
+        props.destination!.id,
+        destPath(),
+        schedule(),
+        retention(),
+        props.destination!.enabled,
+        exclusions,
+      );
+      props.onUpdated();
       handleClose();
     } catch (e: any) {
       setError(e?.message ?? t("add_dest_save_err"));
@@ -85,11 +93,10 @@ export function AddDestinationModal(props: Props) {
   };
 
   return (
-    <>
     <Modal
       open={props.open}
       onClose={handleClose}
-      title={t("add_dest_title")}
+      title={t("edit_dest_title")}
       footer={
         <div class={styles.footerRow}>
           <Button variant="ghost" onClick={handleClose}>{t("btn_cancel")}</Button>
@@ -109,7 +116,6 @@ export function AddDestinationModal(props: Props) {
           <input
             class={`${styles.input} ${styles.inputFlex}`}
             type="text"
-            placeholder="/backup/target"
             value={destPath()}
             onInput={(e) => {
               setDestPath(e.currentTarget.value);
@@ -131,12 +137,7 @@ export function AddDestinationModal(props: Props) {
       <div class={styles.field}>
         <label class={styles.label}>{t("add_dest_schedule")}</label>
         <div class={styles.scheduleBox}>
-          <SchedulePicker
-            value={schedule()}
-            onChange={setSchedule}
-            isLicensed={isLicensed()}
-            onProRequired={() => setShowUpgrade(true)}
-          />
+          <SchedulePicker value={schedule()} onChange={setSchedule} />
         </div>
       </div>
 
@@ -169,13 +170,6 @@ export function AddDestinationModal(props: Props) {
         <div class={styles.hint}>{t("add_dest_exclusions_hint")}</div>
       </div>
     </Modal>
-
-    <UpgradeModal
-      open={showUpgrade()}
-      onClose={() => setShowUpgrade(false)}
-      sourceCount={0}
-      subtitle={t("pro_schedule_sub")}
-    />
-    </>
   );
 }
+

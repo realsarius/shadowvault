@@ -22,6 +22,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   sourceCount: number;
+  subtitle?: string;
 }
 
 export function UpgradeModal(props: Props) {
@@ -89,7 +90,7 @@ export function UpgradeModal(props: Props) {
         <div>
           <div class={styles.limitTitle}>Ücretsiz plan sınırına ulaştınız</div>
           <div class={styles.limitSub}>
-            {props.sourceCount}/{FREE_LIMIT} kaynak kullanılıyor — daha fazlası için lisans gereklidir.
+            {props.subtitle ?? `${props.sourceCount}/${FREE_LIMIT} kaynak kullanılıyor — daha fazlası için lisans gereklidir.`}
           </div>
         </div>
       </div>

@@ -46,13 +46,24 @@ pub async fn create_source(
 #[tauri::command]
 pub async fn update_source(
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     id: String,
     name: String,
+    path: String,
+    source_type: String,
     enabled: bool,
 ) -> Result<(), String> {
-    queries::update_source(&state.db, &id, &name, enabled)
+    queries::update_source(&state.db, &id, &name, &path, &source_type, enabled)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Restart watcher so it picks up the new source path
+    let db = state.db.clone();
+    let running_jobs = state.running_jobs.clone();
+    let mut watcher = state.watcher.lock().await;
+    watcher.start(db, running_jobs, app_handle).await;
+
+    Ok(())
 }
 
 #[tauri::command]

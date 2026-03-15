@@ -158,6 +158,7 @@ impl FileWatcher {
                                 source: source_clone,
                                 destination: dest_clone,
                                 trigger: "OnChange".to_string(),
+                                app: Some(watch_ah_start.clone()),
                             };
                             match job.execute(db_clone).await {
                                 Ok(log_entry) => {

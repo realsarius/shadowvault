@@ -14,6 +14,7 @@ interface Props {
   activeId: string | null;
   onSelect: (id: string) => void;
   onAdd: () => void;
+  onEdit?: (id: string) => void;
 }
 
 export function SourceList(props: Props) {
@@ -52,6 +53,7 @@ export function SourceList(props: Props) {
                 source={source}
                 active={props.activeId === source.id}
                 onClick={() => props.onSelect(source.id)}
+                onEdit={() => props.onEdit?.(source.id)}
               />
             </div>
           )}

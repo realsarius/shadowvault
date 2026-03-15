@@ -3,8 +3,11 @@ import { TbOutlineFolder, TbOutlineFile, TbOutlineArchive } from "solid-icons/tb
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { Toggle } from "../ui/Toggle";
+import { EditDestinationModal } from "./EditDestinationModal";
+import { UpgradeModal } from "../../pages/License";
 import { t } from "../../i18n";
 import { api } from "../../api/tauri";
+import { store } from "../../store";
 import type { Source, Destination, JobStatus } from "../../store/types";
 import styles from "./DestinationList.module.css";
 
@@ -52,6 +55,16 @@ function statusLabel(status: JobStatus | null): string {
 export function DestinationList(props: Props) {
   const [deletingId, setDeletingId] = createSignal<string | null>(null);
   const [runningId, setRunningId] = createSignal<string | null>(null);
+  const [editingDest, setEditingDest] = createSignal<Destination | null>(null);
+  const [showUpgrade, setShowUpgrade] = createSignal(false);
+
+  const isLicensed = () => store.licenseStatus === "valid";
+  const atDestLimit = () => !isLicensed() && props.source.destinations.length >= 1;
+
+  const handleAddDestination = () => {
+    if (atDestLimit()) { setShowUpgrade(true); return; }
+    props.onAddDestination();
+  };
 
   const handleRunNow = async (destId: string) => {
     setRunningId(destId);
@@ -82,7 +95,7 @@ export function DestinationList(props: Props) {
             <div class={styles.sourcePath}>{props.source.path}</div>
           </div>
         </div>
-        <Button size="sm" onClick={props.onAddDestination}>{t("dest_add")}</Button>
+        <Button size="sm" onClick={handleAddDestination}>{t("dest_add")}</Button>
       </div>
 
       <div class={styles.list}>
@@ -99,6 +112,23 @@ export function DestinationList(props: Props) {
             const isRunning = () => props.runningJobs.has(dest.id) || runningId() === dest.id;
             return (
               <div class={styles.card}>
+                <Show when={store.copyProgress[dest.id]}>
+                  {(progress) => {
+                    const pct = () => progress().files_total > 0
+                      ? Math.round((progress().files_done / progress().files_total) * 100)
+                      : 0;
+                    return (
+                      <>
+                        <div class={styles.progressBar}>
+                          <div class={styles.progressFill} style={{ width: `${pct()}%` }} />
+                        </div>
+                        <div class={styles.progressText}>
+                          {progress().files_done}/{progress().files_total} dosya
+                        </div>
+                      </>
+                    );
+                  }}
+                </Show>
                 <div class={styles.cardTop}>
                   <div class={styles.cardInfo}>
                     <div class={styles.destPath}>{dest.path}</div>
@@ -129,6 +159,9 @@ export function DestinationList(props: Props) {
                     <Button variant="ghost" size="sm" onClick={() => handleRunNow(dest.id)} disabled={isRunning()}>
                       {isRunning() ? t("btn_running") : t("btn_run_now")}
                     </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setEditingDest(dest)}>
+                      {t("btn_edit")}
+                    </Button>
                     <Button variant="danger" size="sm" onClick={() => handleDelete(dest.id)} disabled={deletingId() === dest.id}>
                       {t("btn_delete")}
                     </Button>
@@ -139,6 +172,20 @@ export function DestinationList(props: Props) {
           }}
         </For>
       </div>
+
+      <EditDestinationModal
+        open={editingDest() !== null}
+        onClose={() => setEditingDest(null)}
+        destination={editingDest()}
+        onUpdated={() => { setEditingDest(null); props.onRefresh(); }}
+      />
+
+      <UpgradeModal
+        open={showUpgrade()}
+        onClose={() => setShowUpgrade(false)}
+        sourceCount={0}
+        subtitle={t("pro_dest_sub")}
+      />
     </div>
   );
 }

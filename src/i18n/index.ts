@@ -29,6 +29,7 @@ const tr = {
   btn_clear: "Temizle",
   btn_clearing: "Temizleniyor...",
   btn_add_new: "+ Yeni",
+  btn_edit: "Düzenle",
 
   // Status
   status_active: "Aktif",
@@ -45,11 +46,21 @@ const tr = {
   trigger_onchange: "Değişince",
   trigger_manual: "Manuel",
 
+  // Edit source / destination
+  edit_src_title: "Kaynağı Düzenle",
+  edit_src_enabled_label: "Aktif",
+  edit_dest_title: "Hedefi Düzenle",
+
+  // Pro limits
+  pro_schedule_sub: "Cron ve OnChange zamanlama seçenekleri Pro plana özeldir.",
+  pro_dest_sub: "Ücretsiz planda kaynak başına yalnızca 1 hedef eklenebilir.",
+
   // Schedule picker
   schedule_interval: "Her X dakikada bir",
   schedule_cron: "Cron ifadesi",
   schedule_onchange: "Dosya değişince",
   schedule_manual: "Sadece manuel",
+  cron_help_tooltip: "dakika  saat  gün  ay  haftaGünü\n   *      *    *    *      *\n\nÖrn:\n0 2 * * *     → Her gün 02:00\n*/30 * * * *  → Her 30 dakikada\n0 9 * * 1     → Her Pzt 09:00",
 
   // Retention naming
   naming_timestamp: "Zaman Damgası",
@@ -74,6 +85,7 @@ const tr = {
   // Source placeholder
   src_select_hint: "Soldaki listeden bir kaynak seçin",
   src_select_hint2: "veya yeni bir kaynak ekleyin.",
+  drag_drop_hint: "Dosya veya klasörü buraya sürükleyin",
 
   // Add source modal
   add_src_step1: "Kaynak",
@@ -258,6 +270,16 @@ const en: Record<keyof typeof tr, string> = {
   btn_clear: "Clear",
   btn_clearing: "Clearing...",
   btn_add_new: "+ New",
+  btn_edit: "Edit",
+
+  // Edit source / destination
+  edit_src_title: "Edit Source",
+  edit_src_enabled_label: "Enabled",
+  edit_dest_title: "Edit Target",
+
+  // Pro limits
+  pro_schedule_sub: "Cron and OnChange scheduling are Pro-only features.",
+  pro_dest_sub: "Free plan allows only 1 target per source.",
 
   // Status
   status_active: "Active",
@@ -279,6 +301,7 @@ const en: Record<keyof typeof tr, string> = {
   schedule_cron: "Cron expression",
   schedule_onchange: "On file change",
   schedule_manual: "Manual only",
+  cron_help_tooltip: "minute  hour  day  month  weekday\n   *       *     *     *       *\n\nEx:\n0 2 * * *     → Every day 02:00\n*/30 * * * *  → Every 30 min\n0 9 * * 1     → Every Mon 09:00",
 
   // Retention naming
   naming_timestamp: "Timestamp",
@@ -303,6 +326,7 @@ const en: Record<keyof typeof tr, string> = {
   // Source placeholder
   src_select_hint: "Select a source from the list on the left",
   src_select_hint2: "or add a new source.",
+  drag_drop_hint: "Drag a file or folder here",
 
   // Add source modal
   add_src_step1: "Source",

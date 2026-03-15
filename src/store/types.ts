@@ -68,3 +68,10 @@ export interface DiskInfo {
   available_bytes: number;
   path: string;
 }
+
+export interface CopyProgress {
+  destination_id: string;
+  files_done: number;
+  files_total: number;
+  bytes_done: number;
+}

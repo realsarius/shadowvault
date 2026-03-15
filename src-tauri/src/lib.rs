@@ -159,6 +159,7 @@ pub fn run() {
             commands::fs::pick_directory,
             commands::fs::pick_file,
             commands::fs::get_disk_info,
+            commands::fs::check_path_type,
             commands::updater::check_update,
             commands::updater::install_update,
             commands::license::get_hardware_id,
