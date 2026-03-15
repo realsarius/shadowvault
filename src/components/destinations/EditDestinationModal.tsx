@@ -2,6 +2,7 @@ import { createSignal, Show, createEffect } from "solid-js";
 import { TbOutlineAlertTriangle } from "solid-icons/tb";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
+import { Toggle } from "../ui/Toggle";
 import { SchedulePicker } from "../schedule/SchedulePicker";
 import { t } from "../../i18n";
 import { api } from "../../api/tauri";
@@ -28,6 +29,7 @@ export function EditDestinationModal(props: Props) {
   const [maxVersions, setMaxVersions] = createSignal(10);
   const [naming, setNaming] = createSignal<"Timestamp" | "Index" | "Overwrite">("Timestamp");
   const [exclusionsText, setExclusionsText] = createSignal("");
+  const [incremental, setIncremental] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [availBytes, setAvailBytes] = createSignal<number | null>(null);
@@ -41,6 +43,7 @@ export function EditDestinationModal(props: Props) {
       setMaxVersions(d.retention.max_versions);
       setNaming(d.retention.naming);
       setExclusionsText(d.exclusions.join("\n"));
+      setIncremental(d.incremental ?? false);
       setError(null);
       setAvailBytes(null);
     }
@@ -84,6 +87,7 @@ export function EditDestinationModal(props: Props) {
         retention(),
         props.destination!.enabled,
         exclusions,
+        incremental(),
       );
       props.onUpdated();
       handleClose();
@@ -156,6 +160,15 @@ export function EditDestinationModal(props: Props) {
             <option value="Overwrite">{t("naming_overwrite")}</option>
           </select>
         </div>
+      </div>
+
+      <div class={styles.field}>
+        <Toggle
+          value={incremental()}
+          onChange={setIncremental}
+          label={t("add_dest_incremental")}
+        />
+        <div class={styles.hint}>{t("add_dest_incremental_desc")}</div>
       </div>
 
       <div class={styles.field}>

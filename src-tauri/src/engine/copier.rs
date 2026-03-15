@@ -289,6 +289,17 @@ impl CopyJob {
             SourceType::Directory => {
                 let source_path = std::path::Path::new(&self.source.path);
 
+                // For incremental mode: only copy files modified after last_run
+                let since: Option<std::time::SystemTime> =
+                    if self.destination.incremental {
+                        self.destination.last_run.map(|dt| {
+                            std::time::UNIX_EPOCH +
+                                std::time::Duration::from_secs(dt.timestamp() as u64)
+                        })
+                    } else {
+                        None
+                    };
+
                 // Collect all entries first so we know totals for progress
                 let mut file_entries: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
                 let mut dir_entries: Vec<std::path::PathBuf> = Vec::new();
@@ -303,6 +314,20 @@ impl CopyJob {
                     if exclusion_set.is_match(rel_path) {
                         log::debug!("Excluded: {}", rel_path.display());
                         continue;
+                    }
+
+                    // Incremental: skip files not modified since last run
+                    if let Some(since_time) = since {
+                        if entry.file_type().is_file() {
+                            if let Ok(meta) = entry.metadata() {
+                                if let Ok(modified) = meta.modified() {
+                                    if modified <= since_time {
+                                        log::debug!("Incremental skip (unchanged): {}", rel_path.display());
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     let dest_entry = version_path.join(rel_path);
@@ -337,7 +362,8 @@ impl CopyJob {
                     self.emit_progress(total_files, files_total, bytes_done);
                 }
 
-                // Verify: destination file count must match source
+                // Verify: destination file count must match what we copied
+                // (incremental runs may copy fewer files than the full source)
                 let (dst_bytes, dst_files) = count_dir_stats(version_path)?;
                 if dst_files != total_files {
                     anyhow::bail!(
@@ -346,7 +372,8 @@ impl CopyJob {
                     );
                 }
 
-                let checksum = Some(format!("{} dosya, {} bayt doğrulandı", dst_files, dst_bytes));
+                let mode = if self.destination.incremental && since.is_some() { "artımlı" } else { "tam" };
+                let checksum = Some(format!("{} dosya, {} bayt doğrulandı ({})", dst_files, dst_bytes, mode));
                 Ok((total_bytes, total_files, checksum))
             }
         }

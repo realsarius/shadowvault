@@ -54,6 +54,9 @@ pub struct Destination {
     /// .gitignore-style exclusion patterns applied during copy
     #[serde(default)]
     pub exclusions: Vec<String>,
+    /// When true, only files modified since last_run are copied
+    #[serde(default)]
+    pub incremental: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

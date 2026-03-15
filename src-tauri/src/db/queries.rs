@@ -137,8 +137,8 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     let next_run = dest.next_run.map(|dt| dt.to_rfc3339());
 
     sqlx::query(
-        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, last_run, last_status, next_run)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&dest.id)
     .bind(&dest.source_id)
@@ -147,6 +147,7 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     .bind(&retention_json)
     .bind(&exclusions_json)
     .bind(if dest.enabled { 1i64 } else { 0i64 })
+    .bind(if dest.incremental { 1i64 } else { 0i64 })
     .bind(last_run)
     .bind(last_status)
     .bind(next_run)
@@ -165,7 +166,7 @@ pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     let next_run = dest.next_run.map(|dt| dt.to_rfc3339());
 
     sqlx::query(
-        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, exclusions_json = ?, enabled = ?, last_run = ?, last_status = ?, next_run = ?
+        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, exclusions_json = ?, enabled = ?, incremental = ?, last_run = ?, last_status = ?, next_run = ?
          WHERE id = ?"
     )
     .bind(&dest.path)
@@ -173,6 +174,7 @@ pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     .bind(&retention_json)
     .bind(&exclusions_json)
     .bind(if dest.enabled { 1i64 } else { 0i64 })
+    .bind(if dest.incremental { 1i64 } else { 0i64 })
     .bind(last_run)
     .bind(last_status)
     .bind(next_run)
@@ -197,7 +199,7 @@ pub async fn get_destinations_for_source(
     source_id: &str,
 ) -> anyhow::Result<Vec<Destination>> {
     let rows = sqlx::query(
-        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, last_run, last_status, next_run
+        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run
          FROM destinations WHERE source_id = ? ORDER BY id ASC"
     )
     .bind(source_id)
@@ -214,6 +216,7 @@ pub async fn get_destinations_for_source(
         let retention_json: String = row.try_get("retention_json")?;
         let exclusions_json: String = row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
         let enabled_int: i64 = row.try_get("enabled")?;
+        let incremental_int: i64 = row.try_get("incremental").unwrap_or(0);
         let last_run_str: Option<String> = row.try_get("last_run")?;
         let last_status_str: Option<String> = row.try_get("last_status")?;
         let next_run_str: Option<String> = row.try_get("next_run")?;
@@ -222,6 +225,7 @@ pub async fn get_destinations_for_source(
         let retention: RetentionPolicy = serde_json::from_str(&retention_json)?;
         let exclusions: Vec<String> = serde_json::from_str(&exclusions_json).unwrap_or_default();
         let enabled = enabled_int != 0;
+        let incremental = incremental_int != 0;
         let last_run = last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
         let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
         let next_run = next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
@@ -234,6 +238,7 @@ pub async fn get_destinations_for_source(
             retention,
             exclusions,
             enabled,
+            incremental,
             last_run,
             last_status,
             next_run,
@@ -250,7 +255,7 @@ pub async fn get_all_active_destinations(
         "SELECT
             s.id as s_id, s.name as s_name, s.path as s_path, s.source_type, s.enabled as s_enabled, s.created_at,
             d.id as d_id, d.source_id, d.path as d_path, d.schedule_json, d.retention_json, d.exclusions_json,
-            d.enabled as d_enabled, d.last_run, d.last_status, d.next_run
+            d.enabled as d_enabled, d.incremental, d.last_run, d.last_status, d.next_run
          FROM sources s
          JOIN destinations d ON d.source_id = s.id
          WHERE s.enabled = 1 AND d.enabled = 1"
@@ -275,6 +280,7 @@ pub async fn get_all_active_destinations(
         let retention_json: String = row.try_get("retention_json")?;
         let exclusions_json: String = row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
         let d_enabled_int: i64 = row.try_get("d_enabled")?;
+        let incremental_int: i64 = row.try_get("incremental").unwrap_or(0);
         let last_run_str: Option<String> = row.try_get("last_run")?;
         let last_status_str: Option<String> = row.try_get("last_status")?;
         let next_run_str: Option<String> = row.try_get("next_run")?;
@@ -308,6 +314,7 @@ pub async fn get_all_active_destinations(
             retention,
             exclusions,
             enabled: d_enabled_int != 0,
+            incremental: incremental_int != 0,
             last_run,
             last_status,
             next_run,

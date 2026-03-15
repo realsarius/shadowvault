@@ -24,6 +24,7 @@ export interface Destination {
   last_status: JobStatus | null;
   next_run: string | null;
   exclusions: string[];
+  incremental: boolean;
 }
 
 export interface Source {

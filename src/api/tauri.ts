@@ -11,10 +11,10 @@ export const api = {
     delete: (id: string) => invoke<void>("delete_source", { id }),
   },
   destinations: {
-    add: (sourceId: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, exclusions?: string[]) =>
-      invoke<Destination>("add_destination", { sourceId, path, schedule, retention, exclusions: exclusions ?? [] }),
-    update: (id: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, enabled: boolean, exclusions?: string[]) =>
-      invoke<void>("update_destination", { id, path, schedule, retention, enabled, exclusions: exclusions ?? [] }),
+    add: (sourceId: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, exclusions?: string[], incremental?: boolean) =>
+      invoke<Destination>("add_destination", { sourceId, path, schedule, retention, exclusions: exclusions ?? [], incremental: incremental ?? false }),
+    update: (id: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, enabled: boolean, exclusions?: string[], incremental?: boolean) =>
+      invoke<void>("update_destination", { id, path, schedule, retention, enabled, exclusions: exclusions ?? [], incremental: incremental ?? false }),
     delete: (id: string) => invoke<void>("delete_destination", { id }),
   },
   restore: {

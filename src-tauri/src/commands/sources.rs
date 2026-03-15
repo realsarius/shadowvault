@@ -103,6 +103,7 @@ pub async fn add_destination(
     schedule: Value,
     retention: Value,
     exclusions: Option<Vec<String>>,
+    incremental: Option<bool>,
 ) -> Result<Destination, String> {
     let schedule: Schedule = serde_json::from_value(schedule).map_err(|e| e.to_string())?;
     let retention: RetentionPolicy =
@@ -116,6 +117,7 @@ pub async fn add_destination(
         retention,
         exclusions: exclusions.unwrap_or_default(),
         enabled: true,
+        incremental: incremental.unwrap_or(false),
         last_run: None,
         last_status: None,
         next_run: None,
@@ -146,10 +148,11 @@ pub async fn update_destination(
     retention: Value,
     enabled: bool,
     exclusions: Option<Vec<String>>,
+    incremental: Option<bool>,
 ) -> Result<(), String> {
     // Fetch existing row to preserve source_id and run metadata
     let dest_row = sqlx::query(
-        "SELECT id, source_id, last_run, last_status, next_run, exclusions_json FROM destinations WHERE id = ?",
+        "SELECT id, source_id, last_run, last_status, next_run, exclusions_json, incremental FROM destinations WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(state.db.as_ref())
@@ -165,6 +168,7 @@ pub async fn update_destination(
         dest_row.try_get("next_run").map_err(|e| e.to_string())?;
     let existing_exclusions_json: String =
         dest_row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
+    let existing_incremental: i64 = dest_row.try_get("incremental").unwrap_or(0);
 
     let schedule_parsed: Schedule =
         serde_json::from_value(schedule).map_err(|e| e.to_string())?;
@@ -182,6 +186,7 @@ pub async fn update_destination(
     let resolved_exclusions = exclusions.unwrap_or_else(|| {
         serde_json::from_str(&existing_exclusions_json).unwrap_or_default()
     });
+    let resolved_incremental = incremental.unwrap_or(existing_incremental != 0);
 
     let is_onchange = matches!(schedule_parsed, Schedule::OnChange);
 
@@ -193,6 +198,7 @@ pub async fn update_destination(
         retention: retention_parsed,
         exclusions: resolved_exclusions,
         enabled,
+        incremental: resolved_incremental,
         last_run,
         last_status,
         next_run,

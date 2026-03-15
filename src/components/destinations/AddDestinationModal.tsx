@@ -2,6 +2,7 @@ import { createSignal, Show } from "solid-js";
 import { TbOutlineAlertTriangle } from "solid-icons/tb";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
+import { Toggle } from "../ui/Toggle";
 import { SchedulePicker } from "../schedule/SchedulePicker";
 import { UpgradeModal } from "../../pages/License";
 import { t } from "../../i18n";
@@ -30,6 +31,7 @@ export function AddDestinationModal(props: Props) {
   const [maxVersions, setMaxVersions] = createSignal(10);
   const [naming, setNaming] = createSignal<"Timestamp" | "Index" | "Overwrite">("Timestamp");
   const [exclusionsText, setExclusionsText] = createSignal("");
+  const [incremental, setIncremental] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [availBytes, setAvailBytes] = createSignal<number | null>(null);
@@ -41,7 +43,7 @@ export function AddDestinationModal(props: Props) {
 
   const reset = () => {
     setDestPath(""); setSchedule({ type: "Interval", value: { minutes: 60 } });
-    setMaxVersions(10); setNaming("Timestamp"); setExclusionsText("");
+    setMaxVersions(10); setNaming("Timestamp"); setExclusionsText(""); setIncremental(false);
     setSaving(false); setError(null); setAvailBytes(null);
   };
 
@@ -76,7 +78,7 @@ export function AddDestinationModal(props: Props) {
         .split("\n")
         .map((s) => s.trim())
         .filter(Boolean);
-      await api.destinations.add(props.sourceId, destPath(), schedule(), retention(), exclusions);
+      await api.destinations.add(props.sourceId, destPath(), schedule(), retention(), exclusions, incremental());
       props.onCreated();
       handleClose();
     } catch (e: any) {
@@ -155,6 +157,15 @@ export function AddDestinationModal(props: Props) {
             <option value="Overwrite">{t("naming_overwrite")}</option>
           </select>
         </div>
+      </div>
+
+      <div class={styles.field}>
+        <Toggle
+          value={incremental()}
+          onChange={setIncremental}
+          label={t("add_dest_incremental")}
+        />
+        <div class={styles.hint}>{t("add_dest_incremental_desc")}</div>
       </div>
 
       <div class={styles.field}>

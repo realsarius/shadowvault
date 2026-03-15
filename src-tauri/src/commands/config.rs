@@ -37,6 +37,8 @@ pub struct DestinationExport {
     pub retention: RetentionPolicy,
     pub exclusions: Vec<String>,
     pub enabled: bool,
+    #[serde(default)]
+    pub incremental: bool,
 }
 
 // ── Settings keys that are safe to export/import ─────────────────────────────
@@ -77,6 +79,7 @@ pub async fn export_config(
                     retention: d.retention,
                     exclusions: d.exclusions,
                     enabled: d.enabled,
+                    incremental: d.incremental,
                 })
                 .collect(),
         })
@@ -195,6 +198,7 @@ async fn apply_import(
                 retention: dest_export.retention,
                 exclusions: dest_export.exclusions,
                 enabled: dest_export.enabled,
+                incremental: dest_export.incremental,
                 last_run: None,
                 last_status: None,
                 next_run: None,
