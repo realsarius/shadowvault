@@ -2,6 +2,46 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use crate::models::schedule::{Schedule, RetentionPolicy};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum DestinationType {
+    Local,
+    S3,
+    R2,
+    Sftp,
+}
+
+impl Default for DestinationType {
+    fn default() -> Self {
+        DestinationType::Local
+    }
+}
+
+fn default_destination_type() -> DestinationType {
+    DestinationType::Local
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct S3Config {
+    pub provider: String,
+    pub bucket: String,
+    pub region: String,
+    pub access_key_id: String,
+    pub secret_access_key: String,
+    pub endpoint_url: Option<String>,
+    pub prefix: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SftpConfig {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_type: String,          // "password" | "key"
+    pub password: Option<String>,
+    pub private_key: Option<String>, // path to private key file
+    pub remote_path: String,        // base directory on server
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Source {
     pub id: String,
@@ -57,6 +97,12 @@ pub struct Destination {
     /// When true, only files modified since last_run are copied
     #[serde(default)]
     pub incremental: bool,
+    #[serde(default = "default_destination_type")]
+    pub destination_type: DestinationType,
+    #[serde(default)]
+    pub cloud_config: Option<S3Config>,
+    #[serde(default)]
+    pub sftp_config: Option<SftpConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

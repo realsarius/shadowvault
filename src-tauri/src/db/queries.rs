@@ -1,8 +1,115 @@
 use sqlx::SqlitePool;
 use chrono::{DateTime, Utc};
-use crate::models::{Source, Destination, SourceType, JobStatus};
+use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig};
 use crate::models::schedule::{Schedule, RetentionPolicy};
 use std::str::FromStr;
+
+fn encrypt_cloud_config(plaintext: &str) -> anyhow::Result<String> {
+    use sysinfo::System;
+    use sha2::{Sha256, Digest};
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+    use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm, Key};
+
+    let hw_raw = {
+        let mut sys = System::new();
+        sys.refresh_memory();
+        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
+        let total_memory = sys.total_memory();
+        let cpu_count = sys.cpus().len();
+        format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
+    };
+    let key_bytes: [u8; 32] = {
+        let mut hasher = Sha256::new();
+        hasher.update(hw_raw.as_bytes());
+        hasher.finalize().into()
+    };
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let ciphertext = cipher.encrypt(&nonce, plaintext.as_bytes())
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let mut combined = nonce.to_vec();
+    combined.extend(ciphertext);
+    Ok(BASE64.encode(combined))
+}
+
+fn decrypt_cloud_config(enc: &str) -> Option<S3Config> {
+    use sysinfo::System;
+    use sha2::{Sha256, Digest};
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
+
+    let hw_raw = {
+        let mut sys = System::new();
+        sys.refresh_memory();
+        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
+        let total_memory = sys.total_memory();
+        let cpu_count = sys.cpus().len();
+        format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
+    };
+
+    let key_bytes: [u8; 32] = {
+        let mut hasher = Sha256::new();
+        hasher.update(hw_raw.as_bytes());
+        hasher.finalize().into()
+    };
+
+    let combined = BASE64.decode(enc).ok()?;
+    if combined.len() < 13 { return None; }
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(&combined[..12]);
+    let plaintext = cipher.decrypt(nonce, &combined[12..]).ok()?;
+    let json = String::from_utf8(plaintext).ok()?;
+    serde_json::from_str::<S3Config>(&json).ok()
+}
+
+fn decrypt_sftp_config(enc: &str) -> Option<SftpConfig> {
+    use sysinfo::System;
+    use sha2::{Sha256, Digest};
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
+
+    let hw_raw = {
+        let mut sys = System::new();
+        sys.refresh_memory();
+        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
+        let total_memory = sys.total_memory();
+        let cpu_count = sys.cpus().len();
+        format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
+    };
+    let key_bytes: [u8; 32] = {
+        let mut hasher = Sha256::new();
+        hasher.update(hw_raw.as_bytes());
+        hasher.finalize().into()
+    };
+    let combined = BASE64.decode(enc).ok()?;
+    if combined.len() < 13 { return None; }
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(&combined[..12]);
+    let plaintext = cipher.decrypt(nonce, &combined[12..]).ok()?;
+    let json = String::from_utf8(plaintext).ok()?;
+    serde_json::from_str::<SftpConfig>(&json).ok()
+}
+
+fn parse_destination_type(s: &str) -> DestinationType {
+    match s {
+        "S3" => DestinationType::S3,
+        "R2" => DestinationType::R2,
+        "Sftp" => DestinationType::Sftp,
+        _ => DestinationType::Local,
+    }
+}
+
+fn destination_type_str(dt: &DestinationType) -> &'static str {
+    match dt {
+        DestinationType::S3 => "S3",
+        DestinationType::R2 => "R2",
+        DestinationType::Sftp => "Sftp",
+        DestinationType::Local => "Local",
+    }
+}
 
 pub async fn get_all_sources(pool: &SqlitePool) -> anyhow::Result<Vec<Source>> {
     let rows = sqlx::query(
@@ -130,7 +237,7 @@ pub async fn delete_source(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
 
 pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::Result<Option<Destination>> {
     let row = sqlx::query(
-        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run
+        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json
          FROM destinations WHERE id = ?"
     )
     .bind(dest_id)
@@ -152,6 +259,8 @@ pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::
             let last_run_str: Option<String> = row.try_get("last_run")?;
             let last_status_str: Option<String> = row.try_get("last_status")?;
             let next_run_str: Option<String> = row.try_get("next_run")?;
+            let destination_type_str_val: String = row.try_get("destination_type").unwrap_or_else(|_| "Local".to_string());
+            let cloud_config_json_enc: Option<String> = row.try_get("cloud_config_json").unwrap_or(None);
 
             let schedule: crate::models::schedule::Schedule = serde_json::from_str(&schedule_json)?;
             let retention: crate::models::schedule::RetentionPolicy = serde_json::from_str(&retention_json)?;
@@ -159,6 +268,9 @@ pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::
             let last_run = last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
             let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
             let next_run = next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+            let destination_type = parse_destination_type(&destination_type_str_val);
+            let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
+        let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
 
             Ok(Some(Destination {
                 id,
@@ -172,6 +284,9 @@ pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::
                 last_run,
                 last_status,
                 next_run,
+                destination_type,
+                cloud_config,
+                sftp_config,
             }))
         }
     }
@@ -184,10 +299,20 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     let last_run = dest.last_run.map(|dt| dt.to_rfc3339());
     let last_status = dest.last_status.as_ref().map(|s| s.to_string());
     let next_run = dest.next_run.map(|dt| dt.to_rfc3339());
+    let dest_type_str = destination_type_str(&dest.destination_type);
+    let encrypted_cloud_config = if let Some(ref config) = dest.cloud_config {
+        let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
+        Some(encrypt_cloud_config(&json)?)
+    } else if let Some(ref config) = dest.sftp_config {
+        let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
+        Some(encrypt_cloud_config(&json)?)
+    } else {
+        None
+    };
 
     sqlx::query(
-        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&dest.id)
     .bind(&dest.source_id)
@@ -200,6 +325,8 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     .bind(last_run)
     .bind(last_status)
     .bind(next_run)
+    .bind(dest_type_str)
+    .bind(encrypted_cloud_config)
     .execute(pool)
     .await?;
 
@@ -213,9 +340,19 @@ pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     let last_run = dest.last_run.map(|dt| dt.to_rfc3339());
     let last_status = dest.last_status.as_ref().map(|s| s.to_string());
     let next_run = dest.next_run.map(|dt| dt.to_rfc3339());
+    let dest_type_str = destination_type_str(&dest.destination_type);
+    let encrypted_cloud_config = if let Some(ref config) = dest.cloud_config {
+        let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
+        Some(encrypt_cloud_config(&json)?)
+    } else if let Some(ref config) = dest.sftp_config {
+        let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
+        Some(encrypt_cloud_config(&json)?)
+    } else {
+        None
+    };
 
     sqlx::query(
-        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, exclusions_json = ?, enabled = ?, incremental = ?, last_run = ?, last_status = ?, next_run = ?
+        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, exclusions_json = ?, enabled = ?, incremental = ?, last_run = ?, last_status = ?, next_run = ?, destination_type = ?, cloud_config_json = ?
          WHERE id = ?"
     )
     .bind(&dest.path)
@@ -227,6 +364,8 @@ pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     .bind(last_run)
     .bind(last_status)
     .bind(next_run)
+    .bind(dest_type_str)
+    .bind(encrypted_cloud_config)
     .bind(&dest.id)
     .execute(pool)
     .await?;
@@ -248,7 +387,7 @@ pub async fn get_destinations_for_source(
     source_id: &str,
 ) -> anyhow::Result<Vec<Destination>> {
     let rows = sqlx::query(
-        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run
+        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json
          FROM destinations WHERE source_id = ? ORDER BY id ASC"
     )
     .bind(source_id)
@@ -269,6 +408,8 @@ pub async fn get_destinations_for_source(
         let last_run_str: Option<String> = row.try_get("last_run")?;
         let last_status_str: Option<String> = row.try_get("last_status")?;
         let next_run_str: Option<String> = row.try_get("next_run")?;
+        let destination_type_str_val: String = row.try_get("destination_type").unwrap_or_else(|_| "Local".to_string());
+        let cloud_config_json_enc: Option<String> = row.try_get("cloud_config_json").unwrap_or(None);
 
         let schedule: Schedule = serde_json::from_str(&schedule_json)?;
         let retention: RetentionPolicy = serde_json::from_str(&retention_json)?;
@@ -278,6 +419,9 @@ pub async fn get_destinations_for_source(
         let last_run = last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
         let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
         let next_run = next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+        let destination_type = parse_destination_type(&destination_type_str_val);
+        let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
+        let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
 
         destinations.push(Destination {
             id,
@@ -291,6 +435,9 @@ pub async fn get_destinations_for_source(
             last_run,
             last_status,
             next_run,
+            destination_type,
+            cloud_config,
+            sftp_config,
         });
     }
 
@@ -304,7 +451,8 @@ pub async fn get_all_active_destinations(
         "SELECT
             s.id as s_id, s.name as s_name, s.path as s_path, s.source_type, s.enabled as s_enabled, s.created_at,
             d.id as d_id, d.source_id, d.path as d_path, d.schedule_json, d.retention_json, d.exclusions_json,
-            d.enabled as d_enabled, d.incremental, d.last_run, d.last_status, d.next_run
+            d.enabled as d_enabled, d.incremental, d.last_run, d.last_status, d.next_run,
+            d.destination_type, d.cloud_config_json
          FROM sources s
          JOIN destinations d ON d.source_id = s.id
          WHERE s.enabled = 1 AND d.enabled = 1"
@@ -333,6 +481,8 @@ pub async fn get_all_active_destinations(
         let last_run_str: Option<String> = row.try_get("last_run")?;
         let last_status_str: Option<String> = row.try_get("last_status")?;
         let next_run_str: Option<String> = row.try_get("next_run")?;
+        let destination_type_str_val: String = row.try_get("destination_type").unwrap_or_else(|_| "Local".to_string());
+        let cloud_config_json_enc: Option<String> = row.try_get("cloud_config_json").unwrap_or(None);
 
         let source_type = SourceType::from_str(&source_type_str)?;
         let created_at = created_at_str
@@ -344,6 +494,9 @@ pub async fn get_all_active_destinations(
         let last_run = last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
         let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
         let next_run = next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+        let destination_type = parse_destination_type(&destination_type_str_val);
+        let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
+        let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
 
         let source = Source {
             id: s_id.clone(),
@@ -367,6 +520,9 @@ pub async fn get_all_active_destinations(
             last_run,
             last_status,
             next_run,
+            destination_type,
+            cloud_config,
+            sftp_config,
         };
 
         result.push((source, destination));

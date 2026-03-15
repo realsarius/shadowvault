@@ -1,5 +1,27 @@
 export type SourceType = "File" | "Directory";
 
+export type DestinationType = "Local" | "S3" | "R2" | "Sftp";
+
+export interface S3Config {
+  provider: "S3" | "R2";
+  bucket: string;
+  region: string;
+  access_key_id: string;
+  secret_access_key: string;
+  endpoint_url?: string;
+  prefix: string;
+}
+
+export interface SftpConfig {
+  host: string;
+  port: number;
+  username: string;
+  auth_type: "password" | "key";
+  password?: string;
+  private_key?: string;
+  remote_path: string;
+}
+
 export type ScheduleType =
   | { type: "Interval"; value: { minutes: number } }
   | { type: "Cron"; value: { expression: string } }
@@ -25,6 +47,9 @@ export interface Destination {
   next_run: string | null;
   exclusions: string[];
   incremental: boolean;
+  destination_type: DestinationType;
+  cloud_config: S3Config | null;
+  sftp_config: SftpConfig | null;
 }
 
 export interface Source {

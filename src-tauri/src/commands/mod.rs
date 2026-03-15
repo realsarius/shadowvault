@@ -9,3 +9,4 @@ pub mod restore;
 pub mod config;
 pub mod notifications;
 pub mod preview;
+pub mod cloud;

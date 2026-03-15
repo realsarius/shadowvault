@@ -174,6 +174,8 @@ pub fn run() {
             commands::config::import_config,
             commands::notifications::send_test_email,
             commands::preview::preview_backup,
+            commands::cloud::test_cloud_connection,
+            commands::cloud::test_sftp_connection,
             rebuild_app_menu,
         ])
         .run(tauri::generate_context!())

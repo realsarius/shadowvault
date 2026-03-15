@@ -38,6 +38,10 @@ sha2 = "0.10"
 base64 = "0.22"
 tauri-plugin-notification = "2"
 globset = "0.4"
+object_store = { version = "0.10", features = ["aws"] }
+bytes = "1"
+futures-util = "0.3"
+ssh2 = "0.9"
 
 [dev-dependencies]
 tempfile = "3"

@@ -102,6 +102,27 @@ impl CopyJob {
     }
 
     pub async fn execute(&self, db: Arc<SqlitePool>) -> anyhow::Result<LogEntry> {
+        // Remote destinations: delegate to appropriate copier
+        match self.destination.destination_type {
+            crate::models::DestinationType::S3 | crate::models::DestinationType::R2 => {
+                return crate::engine::cloud_copier::CloudCopyJob {
+                    source: self.source.clone(),
+                    destination: self.destination.clone(),
+                    trigger: self.trigger.clone(),
+                    app: self.app.clone(),
+                }.execute(db).await;
+            }
+            crate::models::DestinationType::Sftp => {
+                return crate::engine::sftp_copier::SftpCopyJob {
+                    source: self.source.clone(),
+                    destination: self.destination.clone(),
+                    trigger: self.trigger.clone(),
+                    app: self.app.clone(),
+                }.execute(db).await;
+            }
+            crate::models::DestinationType::Local => {}
+        }
+
         self.validate_paths()?;
 
         let started_at = Utc::now();
@@ -424,7 +445,7 @@ fn count_dir_stats(dir: &std::path::Path) -> anyhow::Result<(i64, i32)> {
     Ok((total_bytes, total_files))
 }
 
-fn compute_next_run(
+pub(crate) fn compute_next_run(
     schedule: &crate::models::Schedule,
     after: chrono::DateTime<Utc>,
 ) -> Option<chrono::DateTime<Utc>> {
@@ -442,4 +463,11 @@ fn compute_next_run(
         }
         Schedule::OnChange | Schedule::Manual => None,
     }
+}
+
+pub fn compute_next_run_pub(
+    schedule: &crate::models::Schedule,
+    after: chrono::DateTime<Utc>,
+) -> Option<chrono::DateTime<Utc>> {
+    compute_next_run(schedule, after)
 }
