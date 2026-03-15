@@ -1,6 +1,9 @@
-use tauri::State;
+use std::sync::atomic::Ordering;
+
+use tauri::{AppHandle, State};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tauri_plugin_autostart::ManagerExt;
 
 use crate::AppState;
 use crate::db::queries;
@@ -41,20 +44,19 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, Str
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "tr".to_string());
 
-    let settings = AppSettings {
+    Ok(AppSettings {
         run_on_startup: run_on_startup.trim() == "true",
         minimize_to_tray: minimize_to_tray.trim() == "true",
         theme,
         log_retention_days: log_retention_days.trim().parse::<i64>().unwrap_or(30),
         language,
-    };
-
-    Ok(settings)
+    })
 }
 
 #[tauri::command]
 pub async fn update_settings(
     state: State<'_, AppState>,
+    app_handle: AppHandle,
     settings: Value,
 ) -> Result<(), String> {
     let obj = settings
@@ -73,6 +75,25 @@ pub async fn update_settings(
         queries::upsert_setting(&state.db, key, &value_str)
             .await
             .map_err(|e| e.to_string())?;
+
+        // Sync minimize_to_tray into AppState so window-close handler sees it immediately
+        if key == "minimize_to_tray" {
+            state
+                .minimize_to_tray
+                .store(value_str == "true", Ordering::SeqCst);
+        }
+
+        // Enable or disable OS autostart
+        if key == "run_on_startup" {
+            let autolaunch = app_handle.autolaunch();
+            if value_str == "true" {
+                if let Err(e) = autolaunch.enable() {
+                    log::warn!("Failed to enable autostart: {}", e);
+                }
+            } else if let Err(e) = autolaunch.disable() {
+                log::warn!("Failed to disable autostart: {}", e);
+            }
+        }
     }
 
     Ok(())
