@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::Mutex;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
@@ -9,14 +9,18 @@ pub mod models;
 pub mod db;
 pub mod commands;
 pub mod engine;
+pub mod tray;
 
 use engine::scheduler::Scheduler;
+use engine::watcher::FileWatcher;
 
 pub struct AppState {
     pub db: Arc<SqlitePool>,
     pub scheduler: Arc<Mutex<Scheduler>>,
+    pub watcher: Arc<Mutex<FileWatcher>>,
     pub running_jobs: Arc<DashMap<String, tokio::task::AbortHandle>>,
     pub paused: Arc<AtomicBool>,
+    pub minimize_to_tray: Arc<AtomicBool>,
 }
 
 pub fn run() {
@@ -28,17 +32,23 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle().clone();
 
+            // Setup system tray
+            if let Err(e) = tray::setup_tray(&app_handle) {
+                log::warn!("Failed to setup system tray: {}", e);
+            }
+
             tauri::async_runtime::spawn(async move {
                 // Determine database path
                 let db_path = if let Ok(override_path) = std::env::var("SHADOWVAULT_DB_PATH") {
                     override_path
                 } else {
-                    // Try to get app data directory
                     match app_handle.path().app_data_dir() {
                         Ok(data_dir) => {
-                            // Ensure the directory exists
                             if let Err(e) = std::fs::create_dir_all(&data_dir) {
-                                log::warn!("Failed to create app data dir: {}, falling back to current dir", e);
+                                log::warn!(
+                                    "Failed to create app data dir: {}, falling back to current dir",
+                                    e
+                                );
                                 let cwd = std::env::current_dir()
                                     .unwrap_or_else(|_| std::path::PathBuf::from("."));
                                 cwd.join("shadowvault.db").to_string_lossy().to_string()
@@ -57,7 +67,6 @@ pub fn run() {
 
                 log::info!("Using database at: {}", db_path);
 
-                // Initialize database
                 let pool = match db::init_db(&db_path).await {
                     Ok(p) => Arc::new(p),
                     Err(e) => {
@@ -70,8 +79,15 @@ pub fn run() {
                     Arc::new(DashMap::new());
                 let paused = Arc::new(AtomicBool::new(false));
                 let scheduler = Arc::new(Mutex::new(Scheduler::new()));
+                let watcher = Arc::new(Mutex::new(FileWatcher::new()));
 
-                // Initial scheduler load
+                // Load minimize_to_tray setting; default true
+                let minimize_to_tray = Arc::new(AtomicBool::new(true));
+                if let Ok(Some(val)) = db::queries::get_setting(&pool, "minimize_to_tray").await {
+                    minimize_to_tray.store(val == "true", Ordering::SeqCst);
+                }
+
+                // Start scheduler
                 {
                     let mut sched = scheduler.lock().await;
                     sched
@@ -84,17 +100,40 @@ pub fn run() {
                         .await;
                 }
 
+                // Start file watcher for OnChange destinations
+                {
+                    let mut w = watcher.lock().await;
+                    w.start(pool.clone(), running_jobs.clone(), app_handle.clone()).await;
+                }
+
                 let app_state = AppState {
                     db: pool,
                     scheduler,
+                    watcher,
                     running_jobs,
                     paused,
+                    minimize_to_tray,
                 };
 
                 app_handle.manage(app_state);
             });
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let app = window.app_handle();
+                let should_minimize = app
+                    .try_state::<AppState>()
+                    .map(|s| s.minimize_to_tray.load(Ordering::SeqCst))
+                    .unwrap_or(true);
+
+                if should_minimize {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    log::info!("Window hidden to tray");
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::sources::get_sources,
@@ -115,6 +154,7 @@ pub fn run() {
             commands::settings::update_settings,
             commands::fs::pick_directory,
             commands::fs::pick_file,
+            commands::fs::get_disk_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
