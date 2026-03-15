@@ -1,5 +1,6 @@
 import { createEffect, createSignal, onMount, onCleanup, Switch, Match } from "solid-js";
 import { listen, emit } from "@tauri-apps/api/event";
+import { Toaster } from "solid-sonner";
 import { api } from "./api/tauri";
 import { Layout } from "./components/layout/Layout";
 import { Dashboard } from "./pages/Dashboard";
@@ -96,6 +97,12 @@ export function App() {
         </Switch>
       </Layout>
       <AboutModal open={showAbout()} onClose={() => setShowAbout(false)} />
+      <Toaster
+        position="bottom-right"
+        richColors
+        theme={store.settings?.theme ?? "dark"}
+        duration={3500}
+      />
     </>
   );
 }

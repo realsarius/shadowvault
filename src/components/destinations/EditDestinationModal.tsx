@@ -1,4 +1,5 @@
 import { createSignal, Show, createEffect } from "solid-js";
+import { toast } from "solid-sonner";
 import { TbOutlineAlertTriangle } from "solid-icons/tb";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
@@ -31,7 +32,6 @@ export function EditDestinationModal(props: Props) {
   const [exclusionsText, setExclusionsText] = createSignal("");
   const [incremental, setIncremental] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
   const [availBytes, setAvailBytes] = createSignal<number | null>(null);
   const LOW_SPACE_THRESHOLD = 500 * 1024 * 1024;
 
@@ -44,14 +44,13 @@ export function EditDestinationModal(props: Props) {
       setNaming(d.retention.naming);
       setExclusionsText(d.exclusions.join("\n"));
       setIncremental(d.incremental ?? false);
-      setError(null);
       setAvailBytes(null);
     }
   });
 
   const retention = (): RetentionPolicy => ({ max_versions: maxVersions(), naming: naming() });
 
-  const handleClose = () => { setError(null); props.onClose(); };
+  const handleClose = () => { props.onClose(); };
 
   const checkDiskSpace = async (path: string) => {
     if (!path.trim()) { setAvailBytes(null); return; }
@@ -68,12 +67,11 @@ export function EditDestinationModal(props: Props) {
         setDestPath(picked);
         await checkDiskSpace(picked);
       }
-    } catch { setError(t("add_dest_pick_err")); }
+    } catch { toast.error(t("add_dest_pick_err")); }
   };
 
   const handleSave = async () => {
-    setError(null);
-    if (!destPath().trim()) { setError(t("add_dest_path_req")); return; }
+    if (!destPath().trim()) { toast.error(t("add_dest_path_req")); return; }
     setSaving(true);
     try {
       const exclusions = exclusionsText()
@@ -92,7 +90,7 @@ export function EditDestinationModal(props: Props) {
       props.onUpdated();
       handleClose();
     } catch (e: any) {
-      setError(e?.message ?? t("add_dest_save_err"));
+      toast.error(e?.message ?? t("add_dest_save_err"));
     } finally { setSaving(false); }
   };
 
@@ -111,10 +109,6 @@ export function EditDestinationModal(props: Props) {
         </div>
       }
     >
-      <Show when={error()}>
-        <div class={styles.error}>{error()}</div>
-      </Show>
-
       <div class={styles.field}>
         <label class={styles.label}>{t("add_dest_folder")}</label>
         <div class={styles.inputRow}>

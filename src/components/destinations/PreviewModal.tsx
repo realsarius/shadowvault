@@ -1,4 +1,5 @@
 import { createSignal, createEffect, Show, For } from "solid-js";
+import { toast } from "solid-sonner";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { t, ti } from "../../i18n";
@@ -22,16 +23,14 @@ function formatBytes(bytes: number): string {
 export function PreviewModal(props: Props) {
   const [preview, setPreview] = createSignal<BackupPreview | null>(null);
   const [loading, setLoading] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
 
   createEffect(() => {
     if (props.open && props.destinationId) {
       setPreview(null);
-      setError(null);
       setLoading(true);
       api.preview.backup(props.destinationId)
         .then(setPreview)
-        .catch((e: any) => setError(e?.message ?? t("prev_error")))
+        .catch((e: any) => toast.error(e?.message ?? t("prev_error")))
         .finally(() => setLoading(false));
     }
   });
@@ -54,10 +53,6 @@ export function PreviewModal(props: Props) {
     >
       <Show when={loading()}>
         <div class={styles.loading}>{t("prev_loading")}</div>
-      </Show>
-
-      <Show when={error()}>
-        <div class={styles.error}>{error()}</div>
       </Show>
 
       <Show when={preview()}>

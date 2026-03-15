@@ -16,7 +16,8 @@
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "solid-icons": "^1.2.0",
-    "solid-js": "^1.8.0"
+    "solid-js": "^1.8.0",
+    "solid-sonner": "^0.3.1"
   },
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.0",

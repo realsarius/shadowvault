@@ -1,4 +1,5 @@
-import { createSignal, Show, createEffect } from "solid-js";
+import { createSignal, createEffect } from "solid-js";
+import { toast } from "solid-sonner";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { t } from "../../i18n";
@@ -19,7 +20,6 @@ export function EditSourceModal(props: Props) {
   const [sourceType, setSourceType] = createSignal<SourceType>("Directory");
   const [enabled, setEnabled] = createSignal(true);
   const [saving, setSaving] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
 
   createEffect(() => {
     if (props.source) {
@@ -27,11 +27,10 @@ export function EditSourceModal(props: Props) {
       setSourcePath(props.source.path);
       setSourceType(props.source.source_type);
       setEnabled(props.source.enabled);
-      setError(null);
     }
   });
 
-  const handleClose = () => { setError(null); props.onClose(); };
+  const handleClose = () => { props.onClose(); };
 
   const pickSource = async () => {
     try {
@@ -39,20 +38,19 @@ export function EditSourceModal(props: Props) {
         ? await api.fs.pickDirectory()
         : await api.fs.pickFile();
       if (picked) setSourcePath(picked);
-    } catch { setError(t("add_src_pick_err")); }
+    } catch { toast.error(t("add_src_pick_err")); }
   };
 
   const handleSave = async () => {
-    setError(null);
-    if (!name().trim()) { setError(t("add_src_name_req")); return; }
-    if (!sourcePath().trim()) { setError(t("add_src_path_req")); return; }
+    if (!name().trim()) { toast.error(t("add_src_name_req")); return; }
+    if (!sourcePath().trim()) { toast.error(t("add_src_path_req")); return; }
     setSaving(true);
     try {
       await api.sources.update(props.source!.id, name().trim(), sourcePath().trim(), sourceType(), enabled());
       props.onUpdated();
       handleClose();
     } catch (e: any) {
-      setError(e?.message ?? t("add_src_save_err"));
+      toast.error(e?.message ?? t("add_src_save_err"));
     } finally { setSaving(false); }
   };
 
@@ -71,10 +69,6 @@ export function EditSourceModal(props: Props) {
         </div>
       }
     >
-      <Show when={error()}>
-        <div class={styles.error}>{error()}</div>
-      </Show>
-
       <div class={styles.field}>
         <label class={styles.label}>{t("add_src_name_label")}</label>
         <input

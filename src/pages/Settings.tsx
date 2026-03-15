@@ -1,6 +1,7 @@
 import { createSignal, onMount, Show } from "solid-js";
 import { getVersion } from "@tauri-apps/api/app";
 import { emit } from "@tauri-apps/api/event";
+import { toast } from "solid-sonner";
 import { store, loadSettings } from "../store";
 import { api } from "../api/tauri";
 import { Toggle } from "../components/ui/Toggle";
@@ -11,25 +12,16 @@ import styles from "./Settings.module.css";
 
 export function Settings() {
   const [saving, setSaving] = createSignal(false);
-  const [saved, setSaved] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
   const [clearingLogs, setClearingLogs] = createSignal(false);
-  const [clearedCount, setClearedCount] = createSignal<number | null>(null);
   const [exporting, setExporting] = createSignal(false);
   const [importing, setImporting] = createSignal(false);
-  const [configMsg, setConfigMsg] = createSignal<{ type: "ok" | "err"; text: string } | null>(null);
-
   const [notifEmail, setNotifEmail] = createSignal("");
   const [savingEmail, setSavingEmail] = createSignal(false);
   const [testingEmail, setTestingEmail] = createSignal(false);
-  const [emailMsg, setEmailMsg] = createSignal<{ type: "ok" | "err"; text: string } | null>(null);
-
   const [appVersion, setAppVersion] = createSignal("0.1.0");
   const [checkingUpdate, setCheckingUpdate] = createSignal(false);
   const [installingUpdate, setInstallingUpdate] = createSignal(false);
   const [updateInfo, setUpdateInfo] = createSignal<{ available: boolean; version: string | null; body: string | null } | null>(null);
-  const [updateError, setUpdateError] = createSignal<string | null>(null);
-
   const [runOnStartup, setRunOnStartup] = createSignal(false);
   const [minimizeToTray, setMinimizeToTray] = createSignal(false);
   const [theme, setTheme] = createSignal<"dark" | "light" | "system">("dark");
@@ -52,28 +44,28 @@ export function Settings() {
   });
 
   const handleSaveEmail = async () => {
-    setSavingEmail(true); setEmailMsg(null);
+    setSavingEmail(true);
     try {
       await api.settings.setValue("notification_email", notifEmail().trim());
-      setEmailMsg({ type: "ok", text: t("set_notif_saved") });
+      toast.success(t("set_notif_saved"));
     } catch {
-      setEmailMsg({ type: "err", text: t("set_notif_save_err") });
+      toast.error(t("set_notif_save_err"));
     } finally { setSavingEmail(false); }
   };
 
   const handleTestEmail = async () => {
     if (!notifEmail().trim()) return;
-    setTestingEmail(true); setEmailMsg(null);
+    setTestingEmail(true);
     try {
       await api.notifications.sendTest(notifEmail().trim());
-      setEmailMsg({ type: "ok", text: t("set_notif_test_ok") });
+      toast.success(t("set_notif_test_ok"));
     } catch (e: any) {
-      setEmailMsg({ type: "err", text: `${t("set_notif_test_fail")} ${e?.message ?? ""}`.trim() });
+      toast.error(`${t("set_notif_test_fail")} ${e?.message ?? ""}`.trim());
     } finally { setTestingEmail(false); }
   };
 
   const handleSave = async () => {
-    setSaving(true); setError(null); setSaved(false);
+    setSaving(true);
     const settings: AppSettings = {
       run_on_startup: runOnStartup(), minimize_to_tray: minimizeToTray(),
       theme: theme(), log_retention_days: logRetentionDays(), language: language(),
@@ -81,22 +73,21 @@ export function Settings() {
     try {
       await api.settings.update(settings);
       await loadSettings();
-      // Rebuild native menu so language change is reflected immediately
       api.menu.rebuild(language()).catch(() => {});
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
+      toast.success(t("set_saved"));
     } catch (e: any) {
-      setError(e?.message ?? t("set_save_err"));
+      toast.error(e?.message ?? t("set_save_err"));
     } finally { setSaving(false); }
   };
 
   const handleCheckUpdate = async () => {
-    setCheckingUpdate(true); setUpdateInfo(null); setUpdateError(null);
+    setCheckingUpdate(true); setUpdateInfo(null);
     try {
       const info = await api.updater.check();
       setUpdateInfo(info);
+      if (!info.available) toast.info(t("set_update_none"));
     } catch (e: any) {
-      setUpdateError(e?.message ?? t("set_update_err"));
+      toast.error(e?.message ?? t("set_update_err"));
     } finally { setCheckingUpdate(false); }
   };
 
@@ -105,37 +96,37 @@ export function Settings() {
     try {
       await api.updater.install();
     } catch (e: any) {
-      setUpdateError(e?.message ?? t("set_update_err"));
+      toast.error(e?.message ?? t("set_update_err"));
       setInstallingUpdate(false);
     }
   };
 
   const handleExport = async () => {
-    setExporting(true); setConfigMsg(null);
+    setExporting(true);
     try {
       await api.config.export();
-      setConfigMsg({ type: "ok", text: t("set_config_exported") });
+      toast.success(t("set_config_exported"));
     } catch (e: any) {
-      if (e?.message !== "cancelled") setConfigMsg({ type: "err", text: e?.message ?? t("set_config_err") });
+      if (e?.message !== "cancelled") toast.error(e?.message ?? t("set_config_err"));
     } finally { setExporting(false); }
   };
 
   const handleImport = async () => {
-    setImporting(true); setConfigMsg(null);
+    setImporting(true);
     try {
       const result = await api.config.import();
-      setConfigMsg({ type: "ok", text: ti("set_config_imported_ok", { s: result.sources_imported, d: result.destinations_imported }) });
+      toast.success(ti("set_config_imported_ok", { s: result.sources_imported, d: result.destinations_imported }));
     } catch (e: any) {
-      if (e?.message !== "cancelled") setConfigMsg({ type: "err", text: e?.message ?? t("set_config_err") });
+      if (e?.message !== "cancelled") toast.error(e?.message ?? t("set_config_err"));
     } finally { setImporting(false); }
   };
 
   const handleClearLogs = async () => {
     if (!confirm(`${logRetentionDays()} ${t("set_days")} ${t("set_log_retention_desc")}`)) return;
-    setClearingLogs(true); setClearedCount(null);
+    setClearingLogs(true);
     try {
       const count = await api.logs.clearOld(logRetentionDays());
-      setClearedCount(count);
+      toast.success(`${count} ${t("set_records_deleted")}`);
     } catch { /* ignore */ }
     finally { setClearingLogs(false); }
   };
@@ -146,13 +137,6 @@ export function Settings() {
         <div class={styles.pageTitle}>{t("set_title")}</div>
         <div class={styles.pageSubtitle}>{t("set_subtitle")}</div>
       </div>
-
-      <Show when={error()}>
-        <div class={`${styles.alert} ${styles.alertError}`}>{error()}</div>
-      </Show>
-      <Show when={saved()}>
-        <div class={`${styles.alert} ${styles.alertSuccess}`}>{t("set_saved")}</div>
-      </Show>
 
       {/* Startup & Behavior */}
       <div class={styles.section}>
@@ -213,7 +197,7 @@ export function Settings() {
               type="email"
               placeholder={t("set_notif_email_ph")}
               value={notifEmail()}
-              onInput={(e) => { setNotifEmail(e.currentTarget.value); setEmailMsg(null); }}
+              onInput={(e) => setNotifEmail(e.currentTarget.value)}
             />
             <Button variant="ghost" size="sm" onClick={handleSaveEmail} disabled={savingEmail()}>
               {savingEmail() ? t("btn_saving") : t("btn_save")}
@@ -223,11 +207,6 @@ export function Settings() {
             </Button>
           </div>
         </div>
-        <Show when={emailMsg()}>
-          <div class={`${styles.alert} ${emailMsg()!.type === "ok" ? styles.alertSuccess : styles.alertError}`}>
-            {emailMsg()!.text}
-          </div>
-        </Show>
       </div>
 
       {/* Config Export / Import */}
@@ -251,11 +230,6 @@ export function Settings() {
             {importing() ? t("set_config_importing") : t("set_config_import")}
           </Button>
         </div>
-        <Show when={configMsg()}>
-          <div class={`${styles.alert} ${configMsg()!.type === "ok" ? styles.alertSuccess : styles.alertError}`}>
-            {configMsg()!.text}
-          </div>
-        </Show>
       </div>
 
       {/* Logs */}
@@ -275,9 +249,6 @@ export function Settings() {
             </Button>
           </div>
         </div>
-        <Show when={clearedCount() !== null}>
-          <div class={styles.clearedMsg}>{clearedCount()} {t("set_records_deleted")}</div>
-        </Show>
       </div>
 
       {/* Watcher warning (Linux inotify) */}
@@ -309,15 +280,10 @@ export function Settings() {
         <div class={styles.rowLast}>
           <div class={styles.rowInfo}>
             <div class={styles.rowLabel}>{t("set_update_check")}</div>
-            <Show when={updateInfo()}>
+            <Show when={updateInfo()?.available}>
               <div class={styles.rowDesc}>
-                {updateInfo()!.available
-                  ? `${t("set_update_available")}: v${updateInfo()!.version}`
-                  : t("set_update_none")}
+                {t("set_update_available")}: v{updateInfo()!.version}
               </div>
-            </Show>
-            <Show when={updateError()}>
-              <div class={`${styles.rowDesc} ${styles.errorText}`}>{updateError()}</div>
             </Show>
           </div>
           <div class={styles.updateActions}>

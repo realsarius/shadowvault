@@ -8,6 +8,7 @@ import {
   TbOutlineKey,
   TbOutlineDeviceDesktopOff,
 } from "solid-icons/tb";
+import { toast } from "solid-sonner";
 import { store, activateLicense, deactivateLicense } from "../store";
 import { api } from "../api/tauri";
 import { t, ti } from "../i18n";
@@ -32,10 +33,7 @@ export function LicensePage() {
   const [key, setKey] = createSignal("");
   const [hardwareId, setHardwareId] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
-  const [success, setSuccess] = createSignal(false);
   const [deactivating, setDeactivating] = createSignal(false);
-  const [deactivateError, setDeactivateError] = createSignal<string | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = createSignal(false);
 
   onMount(async () => {
@@ -58,36 +56,32 @@ export function LicensePage() {
       input.value = formatted;
       input.setSelectionRange(formatted.length, formatted.length);
     });
-    setError(null);
-    setSuccess(false);
   };
 
   const handleActivate = async () => {
     const k = key().trim();
     if (!KEY_PATTERN.test(k)) {
-      setError(t("lic_key_invalid"));
+      toast.error(t("lic_key_invalid"));
       return;
     }
     setLoading(true);
-    setError(null);
     const result = await activateLicense(k);
     setLoading(false);
     if (result.success) {
-      setSuccess(true);
+      toast.success(t("lic_activated"));
       setKey("");
     } else {
-      setError(result.error ?? t("lic_activation_failed"));
+      toast.error(result.error ?? t("lic_activation_failed"));
     }
   };
 
   const handleDeactivate = async () => {
     if (!confirmDeactivate()) { setConfirmDeactivate(true); return; }
     setDeactivating(true);
-    setDeactivateError(null);
     const result = await deactivateLicense();
     setDeactivating(false);
     if (!result.success) {
-      setDeactivateError(result.error ?? t("lic_deactivate_fail"));
+      toast.error(result.error ?? t("lic_deactivate_fail"));
       setConfirmDeactivate(false);
     }
   };
@@ -195,9 +189,6 @@ export function LicensePage() {
                 </div>
                 <div class={styles.deactivateBlock}>
                   <p class={styles.deactivateHint}>{t("lic_deactivate_hint")}</p>
-                  <Show when={deactivateError()}>
-                    <div class={styles.errorMsg}>{deactivateError()}</div>
-                  </Show>
                   <button
                     class={styles.deactivateBtn}
                     disabled={deactivating()}
@@ -239,13 +230,6 @@ export function LicensePage() {
                   onKeyDown={(e) => e.key === "Enter" && !loading() && handleActivate()}
                 />
               </div>
-
-              <Show when={error()}>
-                <div class={styles.errorMsg}>{error()}</div>
-              </Show>
-              <Show when={success()}>
-                <div class={styles.successMsg}>{t("lic_activated")}</div>
-              </Show>
 
               <button
                 class={styles.activateBtn}

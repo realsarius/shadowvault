@@ -1,4 +1,5 @@
 import { createSignal, createEffect, Show } from "solid-js";
+import { toast } from "solid-sonner";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { SchedulePicker } from "../schedule/SchedulePicker";
@@ -27,7 +28,6 @@ export function AddSourceModal(props: Props) {
   const [maxVersions, setMaxVersions] = createSignal(10);
   const [naming, setNaming] = createSignal<"Timestamp" | "Index" | "Overwrite">("Timestamp");
   const [saving, setSaving] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
   const [showUpgrade, setShowUpgrade] = createSignal(false);
   const isLicensed = () => store.licenseStatus === "valid";
 
@@ -36,7 +36,7 @@ export function AddSourceModal(props: Props) {
   const reset = () => {
     setStep(1); setName(""); setSourcePath(""); setSourceType("Directory");
     setDestPath(""); setSchedule({ type: "Interval", value: { minutes: 60 } });
-    setMaxVersions(10); setNaming("Timestamp"); setSaving(false); setError(null);
+    setMaxVersions(10); setNaming("Timestamp"); setSaving(false);
   };
 
   createEffect(() => {
@@ -54,25 +54,25 @@ export function AddSourceModal(props: Props) {
         ? await api.fs.pickDirectory()
         : await api.fs.pickFile();
       if (picked) setSourcePath(picked);
-    } catch { setError(t("add_src_pick_err")); }
+    } catch { toast.error(t("add_src_pick_err")); }
   };
 
   const pickDest = async () => {
     try {
       const picked = await api.fs.pickDirectory();
       if (picked) setDestPath(picked);
-    } catch { setError(t("add_dest_pick_err")); }
+    } catch { toast.error(t("add_dest_pick_err")); }
   };
 
   const handleSave = async () => {
-    setError(null); setSaving(true);
+    setSaving(true);
     try {
       const source = await api.sources.create(name(), sourcePath(), sourceType());
       await api.destinations.add(source.id, destPath(), schedule(), retention());
       props.onCreated();
       handleClose();
     } catch (e: any) {
-      setError(e?.message ?? t("add_src_save_err"));
+      toast.error(e?.message ?? t("add_src_save_err"));
     } finally { setSaving(false); }
   };
 
@@ -99,12 +99,11 @@ export function AddSourceModal(props: Props) {
           {step() > 1 && <Button variant="ghost" onClick={() => setStep(s => s - 1)}>{t("btn_back")}</Button>}
           {step() < 3 && (
             <Button onClick={() => {
-              setError(null);
               if (step() === 1) {
-                if (!name().trim()) { setError(t("add_src_name_req")); return; }
-                if (!sourcePath().trim()) { setError(t("add_src_path_req")); return; }
+                if (!name().trim()) { toast.error(t("add_src_name_req")); return; }
+                if (!sourcePath().trim()) { toast.error(t("add_src_path_req")); return; }
               }
-              if (step() === 2 && !destPath().trim()) { setError(t("add_src_dest_req")); return; }
+              if (step() === 2 && !destPath().trim()) { toast.error(t("add_src_dest_req")); return; }
               setStep(s => s + 1);
             }}>{t("btn_next")}</Button>
           )}
@@ -116,10 +115,6 @@ export function AddSourceModal(props: Props) {
         </div>
       }
     >
-      <Show when={error()}>
-        <div class={styles.error}>{error()}</div>
-      </Show>
-
       {/* Step 1 */}
       <Show when={step() === 1}>
         <div class={styles.field}>

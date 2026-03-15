@@ -1,4 +1,5 @@
 import { createSignal, Show } from "solid-js";
+import { toast } from "solid-sonner";
 import { TbOutlineAlertTriangle } from "solid-icons/tb";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
@@ -33,7 +34,6 @@ export function AddDestinationModal(props: Props) {
   const [exclusionsText, setExclusionsText] = createSignal("");
   const [incremental, setIncremental] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
   const [availBytes, setAvailBytes] = createSignal<number | null>(null);
   const [showUpgrade, setShowUpgrade] = createSignal(false);
   const isLicensed = () => store.licenseStatus === "valid";
@@ -44,7 +44,7 @@ export function AddDestinationModal(props: Props) {
   const reset = () => {
     setDestPath(""); setSchedule({ type: "Interval", value: { minutes: 60 } });
     setMaxVersions(10); setNaming("Timestamp"); setExclusionsText(""); setIncremental(false);
-    setSaving(false); setError(null); setAvailBytes(null);
+    setSaving(false); setAvailBytes(null);
   };
 
   const handleClose = () => { reset(); props.onClose(); };
@@ -66,12 +66,11 @@ export function AddDestinationModal(props: Props) {
         setDestPath(picked);
         await checkDiskSpace(picked);
       }
-    } catch { setError(t("add_dest_pick_err")); }
+    } catch { toast.error(t("add_dest_pick_err")); }
   };
 
   const handleSave = async () => {
-    setError(null);
-    if (!destPath().trim()) { setError(t("add_dest_path_req")); return; }
+    if (!destPath().trim()) { toast.error(t("add_dest_path_req")); return; }
     setSaving(true);
     try {
       const exclusions = exclusionsText()
@@ -82,7 +81,7 @@ export function AddDestinationModal(props: Props) {
       props.onCreated();
       handleClose();
     } catch (e: any) {
-      setError(e?.message ?? t("add_dest_save_err"));
+      toast.error(e?.message ?? t("add_dest_save_err"));
     } finally { setSaving(false); }
   };
 
@@ -102,10 +101,6 @@ export function AddDestinationModal(props: Props) {
         </div>
       }
     >
-      <Show when={error()}>
-        <div class={styles.error}>{error()}</div>
-      </Show>
-
       <div class={styles.field}>
         <label class={styles.label}>{t("add_dest_folder")}</label>
         <div class={styles.inputRow}>

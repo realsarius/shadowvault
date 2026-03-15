@@ -1,4 +1,5 @@
 import { createSignal, For, Show, createMemo } from "solid-js";
+import { toast } from "solid-sonner";
 import { TbOutlineClipboardList, TbOutlineShieldCheck, TbOutlineRestore } from "solid-icons/tb";
 import { Badge } from "../ui/Badge";
 import { t, ti } from "../../i18n";
@@ -66,9 +67,9 @@ async function handleRestore(log: LogEntry) {
   if (!confirm(msg)) return;
   try {
     await api.restore.backup(log.destination_path, log.source_path);
-    alert(t("log_restore_success"));
+    toast.success(t("log_restore_success"));
   } catch (e: any) {
-    alert(ti("log_restore_error", { err: e?.message ?? String(e) }));
+    toast.error(ti("log_restore_error", { err: e?.message ?? String(e) }));
   }
 }
 
