@@ -158,6 +158,8 @@ pub fn run() {
             commands::updater::check_update,
             commands::updater::install_update,
             commands::license::get_hardware_id,
+            commands::license::activate_license,
+            commands::license::validate_license,
             commands::license::store_license,
             commands::license::get_stored_license,
             commands::license::clear_license,

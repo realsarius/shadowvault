@@ -44,6 +44,8 @@ export const api = {
   },
   license: {
     getHardwareId: () => invoke<string>("get_hardware_id"),
+    activate: (key: string) => invoke<{ success: boolean; error?: string }>("activate_license", { key }),
+    validate: () => invoke<{ status: "valid" | "invalid"; offline?: boolean }>("validate_license"),
     store: (key: string) => invoke<void>("store_license", { key }),
     getStored: () => invoke<string | null>("get_stored_license"),
     clear: () => invoke<void>("clear_license"),
