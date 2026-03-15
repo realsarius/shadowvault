@@ -1,0 +1,35 @@
+# Docs (geliştirme notları, promptlar)
+docs/
+
+# Node
+node_modules/
+dist/
+.env
+.env.*
+
+# Rust / Cargo
+target/
+Cargo.lock
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/settings.json
+.idea/
+*.iml
+
+# Logs
+*.log
+npm-debug.log*
