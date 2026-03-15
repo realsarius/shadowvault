@@ -23,6 +23,7 @@ export interface Destination {
   last_run: string | null;
   last_status: JobStatus | null;
   next_run: string | null;
+  exclusions: string[];
 }
 
 export interface Source {
@@ -51,6 +52,7 @@ export interface LogEntry {
   files_copied: number | null;
   error_message: string | null;
   trigger: TriggerType;
+  checksum: string | null;
 }
 
 export interface AppSettings {

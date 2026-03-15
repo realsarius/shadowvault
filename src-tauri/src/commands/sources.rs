@@ -91,6 +91,7 @@ pub async fn add_destination(
     path: String,
     schedule: Value,
     retention: Value,
+    exclusions: Option<Vec<String>>,
 ) -> Result<Destination, String> {
     let schedule: Schedule = serde_json::from_value(schedule).map_err(|e| e.to_string())?;
     let retention: RetentionPolicy =
@@ -102,6 +103,7 @@ pub async fn add_destination(
         path,
         schedule,
         retention,
+        exclusions: exclusions.unwrap_or_default(),
         enabled: true,
         last_run: None,
         last_status: None,
@@ -132,10 +134,11 @@ pub async fn update_destination(
     schedule: Value,
     retention: Value,
     enabled: bool,
+    exclusions: Option<Vec<String>>,
 ) -> Result<(), String> {
     // Fetch existing row to preserve source_id and run metadata
     let dest_row = sqlx::query(
-        "SELECT id, source_id, last_run, last_status, next_run FROM destinations WHERE id = ?",
+        "SELECT id, source_id, last_run, last_status, next_run, exclusions_json FROM destinations WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(state.db.as_ref())
@@ -149,6 +152,8 @@ pub async fn update_destination(
         dest_row.try_get("last_status").map_err(|e| e.to_string())?;
     let next_run_str: Option<String> =
         dest_row.try_get("next_run").map_err(|e| e.to_string())?;
+    let existing_exclusions_json: String =
+        dest_row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
 
     let schedule_parsed: Schedule =
         serde_json::from_value(schedule).map_err(|e| e.to_string())?;
@@ -162,6 +167,11 @@ pub async fn update_destination(
     let next_run =
         next_run_str.and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok());
 
+    // Use provided exclusions or preserve existing ones
+    let resolved_exclusions = exclusions.unwrap_or_else(|| {
+        serde_json::from_str(&existing_exclusions_json).unwrap_or_default()
+    });
+
     let is_onchange = matches!(schedule_parsed, Schedule::OnChange);
 
     let dest = Destination {
@@ -170,6 +180,7 @@ pub async fn update_destination(
         path,
         schedule: schedule_parsed,
         retention: retention_parsed,
+        exclusions: resolved_exclusions,
         enabled,
         last_run,
         last_status,

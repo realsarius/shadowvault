@@ -15,4 +15,6 @@ pub struct LogEntry {
     pub files_copied: Option<i32>,
     pub error_message: Option<String>,
     pub trigger: String,
+    /// SHA-256 hash (file) or "N files verified" (directory) after integrity check
+    pub checksum: Option<String>,
 }

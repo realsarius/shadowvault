@@ -167,6 +167,7 @@ pub fn run() {
             commands::license::store_license,
             commands::license::get_stored_license,
             commands::license::clear_license,
+            commands::restore::restore_backup,
             rebuild_app_menu,
         ])
         .run(tauri::generate_context!())

@@ -127,19 +127,21 @@ pub async fn delete_source(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
 pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow::Result<()> {
     let schedule_json = serde_json::to_string(&dest.schedule)?;
     let retention_json = serde_json::to_string(&dest.retention)?;
+    let exclusions_json = serde_json::to_string(&dest.exclusions)?;
     let last_run = dest.last_run.map(|dt| dt.to_rfc3339());
     let last_status = dest.last_status.as_ref().map(|s| s.to_string());
     let next_run = dest.next_run.map(|dt| dt.to_rfc3339());
 
     sqlx::query(
-        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, enabled, last_run, last_status, next_run)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, last_run, last_status, next_run)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&dest.id)
     .bind(&dest.source_id)
     .bind(&dest.path)
     .bind(&schedule_json)
     .bind(&retention_json)
+    .bind(&exclusions_json)
     .bind(if dest.enabled { 1i64 } else { 0i64 })
     .bind(last_run)
     .bind(last_status)
@@ -153,17 +155,19 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
 pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow::Result<()> {
     let schedule_json = serde_json::to_string(&dest.schedule)?;
     let retention_json = serde_json::to_string(&dest.retention)?;
+    let exclusions_json = serde_json::to_string(&dest.exclusions)?;
     let last_run = dest.last_run.map(|dt| dt.to_rfc3339());
     let last_status = dest.last_status.as_ref().map(|s| s.to_string());
     let next_run = dest.next_run.map(|dt| dt.to_rfc3339());
 
     sqlx::query(
-        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, enabled = ?, last_run = ?, last_status = ?, next_run = ?
+        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, exclusions_json = ?, enabled = ?, last_run = ?, last_status = ?, next_run = ?
          WHERE id = ?"
     )
     .bind(&dest.path)
     .bind(&schedule_json)
     .bind(&retention_json)
+    .bind(&exclusions_json)
     .bind(if dest.enabled { 1i64 } else { 0i64 })
     .bind(last_run)
     .bind(last_status)
@@ -189,7 +193,7 @@ pub async fn get_destinations_for_source(
     source_id: &str,
 ) -> anyhow::Result<Vec<Destination>> {
     let rows = sqlx::query(
-        "SELECT id, source_id, path, schedule_json, retention_json, enabled, last_run, last_status, next_run
+        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, last_run, last_status, next_run
          FROM destinations WHERE source_id = ? ORDER BY id ASC"
     )
     .bind(source_id)
@@ -204,6 +208,7 @@ pub async fn get_destinations_for_source(
         let path: String = row.try_get("path")?;
         let schedule_json: String = row.try_get("schedule_json")?;
         let retention_json: String = row.try_get("retention_json")?;
+        let exclusions_json: String = row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
         let enabled_int: i64 = row.try_get("enabled")?;
         let last_run_str: Option<String> = row.try_get("last_run")?;
         let last_status_str: Option<String> = row.try_get("last_status")?;
@@ -211,6 +216,7 @@ pub async fn get_destinations_for_source(
 
         let schedule: Schedule = serde_json::from_str(&schedule_json)?;
         let retention: RetentionPolicy = serde_json::from_str(&retention_json)?;
+        let exclusions: Vec<String> = serde_json::from_str(&exclusions_json).unwrap_or_default();
         let enabled = enabled_int != 0;
         let last_run = last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
         let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
@@ -222,6 +228,7 @@ pub async fn get_destinations_for_source(
             path,
             schedule,
             retention,
+            exclusions,
             enabled,
             last_run,
             last_status,
@@ -238,7 +245,7 @@ pub async fn get_all_active_destinations(
     let rows = sqlx::query(
         "SELECT
             s.id as s_id, s.name as s_name, s.path as s_path, s.source_type, s.enabled as s_enabled, s.created_at,
-            d.id as d_id, d.source_id, d.path as d_path, d.schedule_json, d.retention_json,
+            d.id as d_id, d.source_id, d.path as d_path, d.schedule_json, d.retention_json, d.exclusions_json,
             d.enabled as d_enabled, d.last_run, d.last_status, d.next_run
          FROM sources s
          JOIN destinations d ON d.source_id = s.id
@@ -262,6 +269,7 @@ pub async fn get_all_active_destinations(
         let d_path: String = row.try_get("d_path")?;
         let schedule_json: String = row.try_get("schedule_json")?;
         let retention_json: String = row.try_get("retention_json")?;
+        let exclusions_json: String = row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
         let d_enabled_int: i64 = row.try_get("d_enabled")?;
         let last_run_str: Option<String> = row.try_get("last_run")?;
         let last_status_str: Option<String> = row.try_get("last_status")?;
@@ -273,6 +281,7 @@ pub async fn get_all_active_destinations(
             .unwrap_or_else(|_| Utc::now());
         let schedule: Schedule = serde_json::from_str(&schedule_json)?;
         let retention: RetentionPolicy = serde_json::from_str(&retention_json)?;
+        let exclusions: Vec<String> = serde_json::from_str(&exclusions_json).unwrap_or_default();
         let last_run = last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
         let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
         let next_run = next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
@@ -293,6 +302,7 @@ pub async fn get_all_active_destinations(
             path: d_path,
             schedule,
             retention,
+            exclusions,
             enabled: d_enabled_int != 0,
             last_run,
             last_status,
@@ -361,15 +371,17 @@ pub async fn update_log_entry_completed(
     bytes_copied: Option<i64>,
     files_copied: Option<i32>,
     error_message: Option<&str>,
+    checksum: Option<&str>,
 ) -> anyhow::Result<()> {
     sqlx::query(
-        "UPDATE copy_logs SET ended_at = ?, status = ?, bytes_copied = ?, files_copied = ?, error_message = ? WHERE id = ?"
+        "UPDATE copy_logs SET ended_at = ?, status = ?, bytes_copied = ?, files_copied = ?, error_message = ?, checksum = ? WHERE id = ?"
     )
     .bind(ended_at.to_rfc3339())
     .bind(status)
     .bind(bytes_copied)
     .bind(files_copied)
     .bind(error_message)
+    .bind(checksum)
     .bind(log_id)
     .execute(pool)
     .await?;
@@ -401,7 +413,7 @@ pub async fn get_logs(
     offset: Option<i64>,
 ) -> anyhow::Result<Vec<crate::models::LogEntry>> {
     let mut query_str = String::from(
-        "SELECT id, source_id, destination_id, source_path, destination_path, started_at, ended_at, status, bytes_copied, files_copied, error_message, trigger
+        "SELECT id, source_id, destination_id, source_path, destination_path, started_at, ended_at, status, bytes_copied, files_copied, error_message, trigger, checksum
          FROM copy_logs WHERE 1=1"
     );
 
@@ -459,6 +471,7 @@ pub async fn get_logs(
         let files_copied: Option<i32> = row.try_get("files_copied")?;
         let error_message: Option<String> = row.try_get("error_message")?;
         let trigger: String = row.try_get("trigger")?;
+        let checksum: Option<String> = row.try_get("checksum").unwrap_or(None);
 
         let started_at = started_at_str
             .parse::<DateTime<Utc>>()
@@ -478,6 +491,7 @@ pub async fn get_logs(
             files_copied,
             error_message,
             trigger,
+            checksum,
         });
     }
 

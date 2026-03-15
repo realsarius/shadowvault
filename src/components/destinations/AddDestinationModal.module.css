@@ -75,3 +75,29 @@
 .diskInfo[data-low="true"] {
   color: var(--yellow);
 }
+
+.textarea {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-family: monospace;
+  outline: none;
+  resize: vertical;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.textarea:focus {
+  border-color: var(--border-focus);
+}
+
+.hint {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted, var(--text-secondary));
+  opacity: 0.7;
+}

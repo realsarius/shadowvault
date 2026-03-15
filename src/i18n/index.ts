@@ -102,6 +102,9 @@ const tr = {
   add_dest_save_err: "Bir hata oluştu.",
   add_dest_avail_space: "Kullanılabilir alan:",
   add_dest_low_space: "Uyarı: Düşük disk alanı!",
+  add_dest_exclusions: "Dışlama Kuralları",
+  add_dest_exclusions_ph: "*.tmp\n.git/\n*.log",
+  add_dest_exclusions_hint: ".gitignore formatında, her satırda bir kural",
 
   // Summary
   sum_source: "Kaynak",
@@ -127,6 +130,11 @@ const tr = {
   log_col_start: "Başlangıç",
   log_col_duration: "Süre",
   log_col_data: "Veri",
+  log_restore: "Geri Yükle",
+  log_restore_confirm: "Bu yedek versiyonunu orijinal konuma geri yüklemek istiyor musunuz?\n\nKaynak: {src}\nYedek: {dst}",
+  log_restore_success: "Geri yükleme tamamlandı.",
+  log_restore_error: "Geri yükleme başarısız: {err}",
+  log_checksum_ok: "Doğrulandı",
 
   // Dashboard
   dash_total_sources: "Toplam Kaynak",
@@ -323,6 +331,9 @@ const en: Record<keyof typeof tr, string> = {
   add_dest_save_err: "An error occurred.",
   add_dest_avail_space: "Available space:",
   add_dest_low_space: "Warning: Low disk space!",
+  add_dest_exclusions: "Exclusion Rules",
+  add_dest_exclusions_ph: "*.tmp\n.git/\n*.log",
+  add_dest_exclusions_hint: ".gitignore format, one rule per line",
 
   // Summary
   sum_source: "Source",
@@ -348,6 +359,11 @@ const en: Record<keyof typeof tr, string> = {
   log_col_start: "Start",
   log_col_duration: "Duration",
   log_col_data: "Data",
+  log_restore: "Restore",
+  log_restore_confirm: "Restore this backup version to its original location?\n\nSource: {src}\nBackup: {dst}",
+  log_restore_success: "Restore completed.",
+  log_restore_error: "Restore failed: {err}",
+  log_checksum_ok: "Verified",
 
   // Dashboard
   dash_total_sources: "Total Sources",

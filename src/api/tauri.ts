@@ -11,11 +11,15 @@ export const api = {
     delete: (id: string) => invoke<void>("delete_source", { id }),
   },
   destinations: {
-    add: (sourceId: string, path: string, schedule: ScheduleType, retention: RetentionPolicy) =>
-      invoke<Destination>("add_destination", { sourceId, path, schedule, retention }),
-    update: (id: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, enabled: boolean) =>
-      invoke<void>("update_destination", { id, path, schedule, retention, enabled }),
+    add: (sourceId: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, exclusions?: string[]) =>
+      invoke<Destination>("add_destination", { sourceId, path, schedule, retention, exclusions: exclusions ?? [] }),
+    update: (id: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, enabled: boolean, exclusions?: string[]) =>
+      invoke<void>("update_destination", { id, path, schedule, retention, enabled, exclusions: exclusions ?? [] }),
     delete: (id: string) => invoke<void>("delete_destination", { id }),
+  },
+  restore: {
+    backup: (backupPath: string, restoreTo: string) =>
+      invoke<void>("restore_backup", { backupPath, restoreTo }),
   },
   jobs: {
     runNow: (destinationId: string) => invoke<void>("run_now", { destinationId }),

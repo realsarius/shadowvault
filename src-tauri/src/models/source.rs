@@ -51,6 +51,9 @@ pub struct Destination {
     pub last_run: Option<DateTime<Utc>>,
     pub last_status: Option<JobStatus>,
     pub next_run: Option<DateTime<Utc>>,
+    /// .gitignore-style exclusion patterns applied during copy
+    #[serde(default)]
+    pub exclusions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

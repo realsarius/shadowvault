@@ -27,6 +27,7 @@ export function AddDestinationModal(props: Props) {
   const [schedule, setSchedule] = createSignal<ScheduleType>({ type: "Interval", value: { minutes: 60 } });
   const [maxVersions, setMaxVersions] = createSignal(10);
   const [naming, setNaming] = createSignal<"Timestamp" | "Index" | "Overwrite">("Timestamp");
+  const [exclusionsText, setExclusionsText] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [availBytes, setAvailBytes] = createSignal<number | null>(null);
@@ -36,7 +37,8 @@ export function AddDestinationModal(props: Props) {
 
   const reset = () => {
     setDestPath(""); setSchedule({ type: "Interval", value: { minutes: 60 } });
-    setMaxVersions(10); setNaming("Timestamp"); setSaving(false); setError(null); setAvailBytes(null);
+    setMaxVersions(10); setNaming("Timestamp"); setExclusionsText("");
+    setSaving(false); setError(null); setAvailBytes(null);
   };
 
   const handleClose = () => { reset(); props.onClose(); };
@@ -66,7 +68,11 @@ export function AddDestinationModal(props: Props) {
     if (!destPath().trim()) { setError(t("add_dest_path_req")); return; }
     setSaving(true);
     try {
-      await api.destinations.add(props.sourceId, destPath(), schedule(), retention());
+      const exclusions = exclusionsText()
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      await api.destinations.add(props.sourceId, destPath(), schedule(), retention(), exclusions);
       props.onCreated();
       handleClose();
     } catch (e: any) {
@@ -138,6 +144,19 @@ export function AddDestinationModal(props: Props) {
             <option value="Overwrite">{t("naming_overwrite")}</option>
           </select>
         </div>
+      </div>
+
+      <div class={styles.field}>
+        <label class={styles.label}>{t("add_dest_exclusions")}</label>
+        <textarea
+          class={styles.textarea}
+          rows={4}
+          placeholder={t("add_dest_exclusions_ph")}
+          value={exclusionsText()}
+          onInput={(e) => setExclusionsText(e.currentTarget.value)}
+          spellcheck={false}
+        />
+        <div class={styles.hint}>{t("add_dest_exclusions_hint")}</div>
       </div>
     </Modal>
   );

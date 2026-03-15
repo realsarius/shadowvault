@@ -1,6 +1,10 @@
 use std::sync::Arc;
+use std::io::Read;
 use chrono::Utc;
 use sqlx::SqlitePool;
+use sha2::{Sha256, Digest};
+use globset::{Glob, GlobSetBuilder};
+
 use crate::models::{Source, Destination, SourceType, LogEntry};
 use crate::db::queries;
 use crate::engine::versioning;
@@ -14,10 +18,40 @@ pub struct CopyJob {
 /// System-owned directories that should never be used as backup destinations.
 #[cfg(unix)]
 const BLOCKED_DEST_PREFIXES: &[&str] = &[
-    "/System", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/boot", "/etc/passwd",
+    "/System", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/boot",
 ];
 #[cfg(windows)]
-const BLOCKED_DEST_PREFIXES: &[&str] = &["C:\\Windows", "C:\\Program Files", "C:\\System Volume Information"];
+const BLOCKED_DEST_PREFIXES: &[&str] = &[
+    "C:\\Windows", "C:\\Program Files", "C:\\System Volume Information",
+];
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+fn compute_file_hash(path: &std::path::Path) -> anyhow::Result<String> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn build_exclusion_set(patterns: &[String]) -> globset::GlobSet {
+    let mut builder = GlobSetBuilder::new();
+    for p in patterns {
+        if let Ok(glob) = Glob::new(p) {
+            builder.add(glob);
+        } else {
+            log::warn!("Invalid exclusion pattern: {}", p);
+        }
+    }
+    builder.build().unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap())
+}
+
+// ── CopyJob ──────────────────────────────────────────────────────────────────
 
 impl CopyJob {
     /// Validates source and destination paths before attempting a copy.
@@ -25,15 +59,13 @@ impl CopyJob {
         let src = std::path::Path::new(&self.source.path);
         let dst = std::path::Path::new(&self.destination.path);
 
-        // Source must exist
         if !src.exists() {
             anyhow::bail!("Kaynak yol bulunamadı: {}", self.source.path);
         }
 
-        // Canonicalize source (resolves symlinks)
         let src_canonical = src.canonicalize()?;
 
-        // Canonicalize the destination's nearest existing ancestor
+        // Canonicalize the nearest existing ancestor of destination
         let dst_canonical = {
             let mut check = dst;
             loop {
@@ -48,29 +80,18 @@ impl CopyJob {
             }
         };
 
-        // Destination must not be inside (or equal to) source — prevents circular copy
+        // Circular copy guards
         if dst_canonical.starts_with(&src_canonical) {
-            anyhow::bail!(
-                "Hedef yol kaynak klasörün içinde olamaz: {}",
-                self.destination.path
-            );
+            anyhow::bail!("Hedef yol kaynak klasörün içinde olamaz: {}", self.destination.path);
         }
-
-        // Source must not be inside destination — also circular
         if src_canonical.starts_with(&dst_canonical) {
-            anyhow::bail!(
-                "Kaynak yol hedef klasörün içinde olamaz: {}",
-                self.source.path
-            );
+            anyhow::bail!("Kaynak yol hedef klasörün içinde olamaz: {}", self.source.path);
         }
 
-        // Block writes to protected system directories
+        // Block protected system directories
         for prefix in BLOCKED_DEST_PREFIXES {
             if dst_canonical.starts_with(prefix) {
-                anyhow::bail!(
-                    "Hedef yol korumalı bir sistem dizini içinde: {}",
-                    prefix
-                );
+                anyhow::bail!("Hedef yol korumalı bir sistem dizini içinde: {}", prefix);
             }
         }
 
@@ -78,12 +99,10 @@ impl CopyJob {
     }
 
     pub async fn execute(&self, db: Arc<SqlitePool>) -> anyhow::Result<LogEntry> {
-        // Validate paths before doing anything else
         self.validate_paths()?;
 
         let started_at = Utc::now();
 
-        // Insert initial log row with status Running
         let log_id = queries::insert_log_entry(
             &db,
             &self.source.id,
@@ -96,7 +115,6 @@ impl CopyJob {
         )
         .await?;
 
-        // Compute the versioned destination path
         let version_path = versioning::compute_version_path(
             &self.destination.path,
             &self.source.name,
@@ -106,23 +124,17 @@ impl CopyJob {
 
         let destination_path_str = version_path.to_string_lossy().to_string();
 
-        // Check disk space before attempting copy
         let copy_result = match self.check_disk_space() {
             Err(e) => Err(e),
             Ok(()) => {
-                // Retry up to 3 times with 5s delay for transient errors
                 let mut result = Err(anyhow::anyhow!("Copy did not start"));
                 for attempt in 1u32..=3 {
                     result = self.do_copy(&version_path).await;
-                    if result.is_ok() {
-                        break;
-                    }
+                    if result.is_ok() { break; }
                     if attempt < 3 {
                         log::warn!(
                             "Copy attempt {}/3 failed for destination {}: {}, retrying in 5s...",
-                            attempt,
-                            self.destination.id,
-                            result.as_ref().unwrap_err()
+                            attempt, self.destination.id, result.as_ref().unwrap_err()
                         );
                         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                     }
@@ -134,20 +146,15 @@ impl CopyJob {
         let ended_at = Utc::now();
 
         match copy_result {
-            Ok((bytes_copied, files_copied)) => {
-                // Update log to Success
+            Ok((bytes_copied, files_copied, checksum)) => {
+                let checksum_ref = checksum.as_deref();
                 queries::update_log_entry_completed(
-                    &db,
-                    log_id,
-                    ended_at,
-                    "Success",
-                    Some(bytes_copied),
-                    Some(files_copied),
-                    None,
+                    &db, log_id, ended_at, "Success",
+                    Some(bytes_copied), Some(files_copied),
+                    None, checksum_ref,
                 )
                 .await?;
 
-                // Apply retention policy
                 if let Err(e) = versioning::apply_retention(
                     &self.destination.path,
                     &self.source.name,
@@ -158,14 +165,9 @@ impl CopyJob {
                     log::warn!("Retention policy failed for destination {}: {}", self.destination.id, e);
                 }
 
-                // Update destination last_run, last_status, next_run
                 let next_run = compute_next_run(&self.destination.schedule, ended_at);
                 queries::update_destination_run_status(
-                    &db,
-                    &self.destination.id,
-                    ended_at,
-                    "Success",
-                    next_run,
+                    &db, &self.destination.id, ended_at, "Success", next_run,
                 )
                 .await?;
 
@@ -182,31 +184,21 @@ impl CopyJob {
                     files_copied: Some(files_copied),
                     error_message: None,
                     trigger: self.trigger.clone(),
+                    checksum,
                 })
             }
             Err(e) => {
                 let error_msg = e.to_string();
 
-                // Update log to Failed
                 queries::update_log_entry_completed(
-                    &db,
-                    log_id,
-                    ended_at,
-                    "Failed",
-                    None,
-                    None,
-                    Some(&error_msg),
+                    &db, log_id, ended_at, "Failed",
+                    None, None, Some(&error_msg), None,
                 )
                 .await?;
 
-                // Update destination status
                 let next_run = compute_next_run(&self.destination.schedule, ended_at);
                 queries::update_destination_run_status(
-                    &db,
-                    &self.destination.id,
-                    ended_at,
-                    "Failed",
-                    next_run,
+                    &db, &self.destination.id, ended_at, "Failed", next_run,
                 )
                 .await?;
 
@@ -218,7 +210,6 @@ impl CopyJob {
     fn check_disk_space(&self) -> anyhow::Result<()> {
         use sysinfo::Disks;
 
-        // Estimate source size
         let source_size: u64 = match &self.source.source_type {
             SourceType::File => std::fs::metadata(&self.source.path)
                 .map(|m| m.len())
@@ -228,9 +219,7 @@ impl CopyJob {
                 .unwrap_or(0),
         };
 
-        if source_size == 0 {
-            return Ok(());
-        }
+        if source_size == 0 { return Ok(()); }
 
         let disks = Disks::new_with_refreshed_list();
         let dest = std::path::Path::new(&self.destination.path);
@@ -242,22 +231,22 @@ impl CopyJob {
             .map(|d| d.available_space())
             .unwrap_or(u64::MAX);
 
-        // Require source size + 10% buffer
         let required = source_size + source_size / 10;
         if available < required {
             anyhow::bail!(
                 "Disk space insufficient: need {} bytes, only {} available at destination",
-                required,
-                available
+                required, available
             );
         }
 
         Ok(())
     }
 
-    async fn do_copy(&self, version_path: &std::path::Path) -> anyhow::Result<(i64, i32)> {
-        // Create destination directory
+    /// Returns (bytes_copied, files_copied, checksum_string)
+    async fn do_copy(&self, version_path: &std::path::Path) -> anyhow::Result<(i64, i32, Option<String>)> {
         std::fs::create_dir_all(version_path)?;
+
+        let exclusion_set = build_exclusion_set(&self.destination.exclusions);
 
         match &self.source.source_type {
             SourceType::File => {
@@ -269,31 +258,65 @@ impl CopyJob {
 
                 let bytes = std::fs::copy(source_path, &dest_file)?;
 
-                Ok((bytes as i64, 1))
+                // SHA-256 integrity check
+                let src_hash = compute_file_hash(source_path)?;
+                let dst_hash = compute_file_hash(&dest_file)?;
+                if src_hash != dst_hash {
+                    std::fs::remove_file(&dest_file).ok();
+                    anyhow::bail!(
+                        "Bütünlük doğrulaması başarısız: kaynak ve hedef SHA-256 değerleri eşleşmiyor"
+                    );
+                }
+
+                Ok((bytes as i64, 1, Some(src_hash)))
             }
             SourceType::Directory => {
                 let source_path = std::path::Path::new(&self.source.path);
+                let mut total_bytes: i64 = 0;
+                let mut total_files: i32 = 0;
 
-                // Remove the directory we just created so fs_extra can copy into it cleanly
-                // fs_extra::dir::copy copies the source dir INTO the destination
-                // We want the contents copied, so we copy source into version_path's parent
-                // and rename if needed, or use copy_contents
-                let options = fs_extra::dir::CopyOptions {
-                    overwrite: true,
-                    skip_exist: false,
-                    buffer_size: 64 * 1024,
-                    copy_inside: true,
-                    content_only: true,
-                    depth: 0,
-                };
+                for entry in walkdir::WalkDir::new(source_path) {
+                    let entry = entry?;
+                    let rel_path = entry.path()
+                        .strip_prefix(source_path)
+                        .unwrap_or(entry.path());
 
-                fs_extra::dir::copy(source_path, version_path, &options)
-                    .map_err(|e| anyhow::anyhow!("Directory copy failed: {}", e))?;
+                    // Skip root entry
+                    if rel_path == std::path::Path::new("") {
+                        continue;
+                    }
 
-                // Count bytes and files after copy
-                let (bytes, files) = count_dir_stats(version_path)?;
+                    // Apply exclusion patterns
+                    if exclusion_set.is_match(rel_path) {
+                        log::debug!("Excluded: {}", rel_path.display());
+                        continue;
+                    }
 
-                Ok((bytes, files))
+                    let dest_entry = version_path.join(rel_path);
+
+                    if entry.file_type().is_dir() {
+                        std::fs::create_dir_all(&dest_entry)?;
+                    } else if entry.file_type().is_file() {
+                        if let Some(parent) = dest_entry.parent() {
+                            std::fs::create_dir_all(parent)?;
+                        }
+                        let bytes = std::fs::copy(entry.path(), &dest_entry)?;
+                        total_bytes += bytes as i64;
+                        total_files += 1;
+                    }
+                }
+
+                // Verify: destination file count must match source
+                let (dst_bytes, dst_files) = count_dir_stats(version_path)?;
+                if dst_files != total_files {
+                    anyhow::bail!(
+                        "Bütünlük doğrulaması başarısız: kopyalanan {} dosyadan {} hedefte bulunamadı",
+                        total_files, dst_files
+                    );
+                }
+
+                let checksum = Some(format!("{} dosya, {} bayt doğrulandı", dst_files, dst_bytes));
+                Ok((total_bytes, total_files, checksum))
             }
         }
     }

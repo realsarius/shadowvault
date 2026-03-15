@@ -1,7 +1,8 @@
 import { createSignal, For, Show, createMemo } from "solid-js";
-import { TbOutlineClipboardList } from "solid-icons/tb";
+import { TbOutlineClipboardList, TbOutlineShieldCheck, TbOutlineRestore } from "solid-icons/tb";
 import { Badge } from "../ui/Badge";
-import { t } from "../../i18n";
+import { t, ti } from "../../i18n";
+import { api } from "../../api/tauri";
 import type { LogEntry, Source, JobStatus } from "../../store/types";
 import styles from "./LogPanel.module.css";
 
@@ -60,6 +61,17 @@ function triggerLabel(trigger: string): string {
   return map[trigger] ?? trigger;
 }
 
+async function handleRestore(log: LogEntry) {
+  const msg = ti("log_restore_confirm", { src: log.source_path, dst: log.destination_path });
+  if (!confirm(msg)) return;
+  try {
+    await api.restore.backup(log.destination_path, log.source_path);
+    alert(t("log_restore_success"));
+  } catch (e: any) {
+    alert(ti("log_restore_error", { err: e?.message ?? String(e) }));
+  }
+}
+
 export function LogPanel(props: Props) {
   const [filterSource, setFilterSource] = createSignal("all");
   const [filterStatus, setFilterStatus] = createSignal("all");
@@ -116,17 +128,19 @@ export function LogPanel(props: Props) {
                 <th class={styles.th}>{t("log_col_start")}</th>
                 <th class={styles.th}>{t("log_col_duration")}</th>
                 <th class={styles.th}>{t("log_col_data")}</th>
+                <th class={styles.th}></th>
               </tr>
             </thead>
             <tbody>
               <For each={filtered()}>
                 {(log) => {
                   const isExpanded = () => expandedId() === log.id;
+                  const isExpandable = () => !!(log.error_message || log.checksum);
                   return (
                     <>
                       <tr
-                        class={`${styles.tr} ${log.error_message ? styles.trExpandable : ""} ${isExpanded() ? styles.trExpanded : ""}`}
-                        onClick={() => log.error_message && setExpandedId(isExpanded() ? null : log.id)}
+                        class={`${styles.tr} ${isExpandable() ? styles.trExpandable : ""} ${isExpanded() ? styles.trExpanded : ""}`}
+                        onClick={() => isExpandable() && setExpandedId(isExpanded() ? null : log.id)}
                       >
                         <td class={styles.td}><Badge variant={statusToVariant(log.status)}>{statusLabel(log.status)}</Badge></td>
                         <td class={styles.td}><span class={styles.sourceName}>{sourceMap()[log.source_id] ?? log.source_path}</span></td>
@@ -134,12 +148,33 @@ export function LogPanel(props: Props) {
                         <td class={styles.td}>{triggerLabel(log.trigger)}</td>
                         <td class={styles.td}>{formatDate(log.started_at)}</td>
                         <td class={styles.td}>{formatDuration(log.started_at, log.ended_at)}</td>
-                        <td class={styles.td}>{formatBytes(log.bytes_copied)}</td>
+                        <td class={styles.td}>
+                          {formatBytes(log.bytes_copied)}
+                          <Show when={log.checksum}>
+                            <span class={styles.checksumBadge} title={log.checksum!}>
+                              <TbOutlineShieldCheck size={12} /> {t("log_checksum_ok")}
+                            </span>
+                          </Show>
+                        </td>
+                        <td class={styles.td} onClick={(e) => e.stopPropagation()}>
+                          <Show when={log.status === "Success"}>
+                            <button class={styles.restoreBtn} onClick={() => handleRestore(log)} title={t("log_restore")}>
+                              <TbOutlineRestore size={14} />
+                            </button>
+                          </Show>
+                        </td>
                       </tr>
-                      <Show when={isExpanded() && log.error_message}>
+                      <Show when={isExpanded()}>
                         <tr class={styles.errorRow}>
-                          <td colSpan={7}>
-                            <div class={styles.errorBox}>{log.error_message}</div>
+                          <td colSpan={8}>
+                            <Show when={log.error_message}>
+                              <div class={styles.errorBox}>{log.error_message}</div>
+                            </Show>
+                            <Show when={log.checksum}>
+                              <div class={styles.checksumBox}>
+                                <TbOutlineShieldCheck size={13} /> {log.checksum}
+                              </div>
+                            </Show>
                           </td>
                         </tr>
                       </Show>

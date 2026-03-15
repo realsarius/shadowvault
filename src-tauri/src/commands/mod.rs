@@ -5,3 +5,4 @@ pub mod settings;
 pub mod fs;
 pub mod updater;
 pub mod license;
+pub mod restore;
