@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Destination, LogEntry, AppSettings, DiskInfo, ScheduleType, RetentionPolicy } from "../store/types";
+import type { Source, Destination, LogEntry, AppSettings, ScheduleType, RetentionPolicy } from "../store/types";
 
 export const api = {
   sources: {
@@ -37,6 +37,8 @@ export const api = {
   settings: {
     get: () => invoke<AppSettings>("get_settings"),
     update: (settings: AppSettings) => invoke<void>("update_settings", { settings }),
+    getValue: (key: string) => invoke<string | null>("get_setting_value", { key }),
+    setValue: (key: string, value: string) => invoke<void>("set_setting_value", { key, value }),
   },
   updater: {
     check: () => invoke<{ available: boolean; version: string | null; body: string | null }>("check_update"),

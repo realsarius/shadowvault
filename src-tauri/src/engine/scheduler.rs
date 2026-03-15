@@ -170,10 +170,12 @@ impl Scheduler {
                             "destination_path": sched_dst_path,
                         }));
 
+                        let trigger = "Scheduled".to_string();
+                        let source_name = source_clone.name.clone();
                         let job = CopyJob {
                             source: source_clone,
                             destination: dest_clone,
-                            trigger: "Scheduled".to_string(),
+                            trigger: trigger.clone(),
                         };
 
                         match job.execute(db_clone).await {
@@ -182,6 +184,14 @@ impl Scheduler {
                                     "Scheduled copy completed for destination {}",
                                     dest_id_inner
                                 );
+                                crate::notifications::notify_copy_result(
+                                    &app_handle_clone,
+                                    &source_name,
+                                    log_entry.files_copied,
+                                    log_entry.bytes_copied,
+                                    &trigger,
+                                    None,
+                                );
                                 let _ = app_handle_clone.emit("copy-completed", &log_entry);
                             }
                             Err(e) => {
@@ -189,6 +199,14 @@ impl Scheduler {
                                     "Scheduled copy failed for destination {}: {}",
                                     dest_id_inner,
                                     e
+                                );
+                                crate::notifications::notify_copy_result(
+                                    &app_handle_clone,
+                                    &source_name,
+                                    None,
+                                    None,
+                                    &trigger,
+                                    Some(&e.to_string()),
                                 );
                                 crate::tray::set_tray_state(&app_handle_clone, "error");
                                 let payload = serde_json::json!({

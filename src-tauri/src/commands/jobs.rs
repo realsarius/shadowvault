@@ -60,19 +60,37 @@ pub async fn run_now(
             "destination_path": dst_path,
         }));
 
+        let trigger = "Manual".to_string();
+        let source_name = source.name.clone();
         let job = CopyJob {
             source,
             destination: dest,
-            trigger: "Manual".to_string(),
+            trigger: trigger.clone(),
         };
 
         match job.execute(db).await {
             Ok(log_entry) => {
                 log::info!("Manual copy completed for destination {}", dest_id_clone);
+                crate::notifications::notify_copy_result(
+                    &app_handle_clone,
+                    &source_name,
+                    log_entry.files_copied,
+                    log_entry.bytes_copied,
+                    &trigger,
+                    None,
+                );
                 let _ = app_handle_clone.emit("copy-completed", &log_entry);
             }
             Err(e) => {
                 log::error!("Manual copy failed for destination {}: {}", dest_id_clone, e);
+                crate::notifications::notify_copy_result(
+                    &app_handle_clone,
+                    &source_name,
+                    None,
+                    None,
+                    &trigger,
+                    Some(&e.to_string()),
+                );
                 let payload = serde_json::json!({
                     "destination_id": dest_id_clone,
                     "error": e.to_string()
@@ -137,19 +155,37 @@ pub async fn run_source_now(
                 "destination_path": dst_path2,
             }));
 
+            let trigger = "Manual".to_string();
+            let source_name = source_clone.name.clone();
             let job = CopyJob {
                 source: source_clone,
                 destination: dest,
-                trigger: "Manual".to_string(),
+                trigger: trigger.clone(),
             };
 
             match job.execute(db).await {
                 Ok(log_entry) => {
                     log::info!("Source run completed for destination {}", dest_id_clone);
+                    crate::notifications::notify_copy_result(
+                        &app_handle_clone,
+                        &source_name,
+                        log_entry.files_copied,
+                        log_entry.bytes_copied,
+                        &trigger,
+                        None,
+                    );
                     let _ = app_handle_clone.emit("copy-completed", &log_entry);
                 }
                 Err(e) => {
                     log::error!("Source run failed for destination {}: {}", dest_id_clone, e);
+                    crate::notifications::notify_copy_result(
+                        &app_handle_clone,
+                        &source_name,
+                        None,
+                        None,
+                        &trigger,
+                        Some(&e.to_string()),
+                    );
                     let payload = serde_json::json!({
                         "destination_id": dest_id_clone,
                         "error": e.to_string()

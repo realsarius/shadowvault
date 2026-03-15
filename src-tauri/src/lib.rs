@@ -12,6 +12,7 @@ pub mod engine;
 pub mod tray;
 pub mod icons_gen;
 pub mod menu;
+pub mod notifications;
 
 use engine::scheduler::Scheduler;
 use engine::watcher::FileWatcher;
@@ -36,6 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let app_handle = app.handle().clone();
 
@@ -152,6 +154,8 @@ pub fn run() {
             commands::logs::clear_old_logs,
             commands::settings::get_settings,
             commands::settings::update_settings,
+            commands::settings::get_setting_value,
+            commands::settings::set_setting_value,
             commands::fs::pick_directory,
             commands::fs::pick_file,
             commands::fs::get_disk_info,

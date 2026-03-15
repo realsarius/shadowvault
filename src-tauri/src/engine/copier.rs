@@ -11,8 +11,76 @@ pub struct CopyJob {
     pub trigger: String,
 }
 
+/// System-owned directories that should never be used as backup destinations.
+#[cfg(unix)]
+const BLOCKED_DEST_PREFIXES: &[&str] = &[
+    "/System", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/boot", "/etc/passwd",
+];
+#[cfg(windows)]
+const BLOCKED_DEST_PREFIXES: &[&str] = &["C:\\Windows", "C:\\Program Files", "C:\\System Volume Information"];
+
 impl CopyJob {
+    /// Validates source and destination paths before attempting a copy.
+    fn validate_paths(&self) -> anyhow::Result<()> {
+        let src = std::path::Path::new(&self.source.path);
+        let dst = std::path::Path::new(&self.destination.path);
+
+        // Source must exist
+        if !src.exists() {
+            anyhow::bail!("Kaynak yol bulunamadı: {}", self.source.path);
+        }
+
+        // Canonicalize source (resolves symlinks)
+        let src_canonical = src.canonicalize()?;
+
+        // Canonicalize the destination's nearest existing ancestor
+        let dst_canonical = {
+            let mut check = dst;
+            loop {
+                if check.exists() {
+                    break check.canonicalize()?
+                        .join(dst.strip_prefix(check).unwrap_or(std::path::Path::new("")));
+                }
+                match check.parent() {
+                    Some(p) => check = p,
+                    None => break dst.to_path_buf(),
+                }
+            }
+        };
+
+        // Destination must not be inside (or equal to) source — prevents circular copy
+        if dst_canonical.starts_with(&src_canonical) {
+            anyhow::bail!(
+                "Hedef yol kaynak klasörün içinde olamaz: {}",
+                self.destination.path
+            );
+        }
+
+        // Source must not be inside destination — also circular
+        if src_canonical.starts_with(&dst_canonical) {
+            anyhow::bail!(
+                "Kaynak yol hedef klasörün içinde olamaz: {}",
+                self.source.path
+            );
+        }
+
+        // Block writes to protected system directories
+        for prefix in BLOCKED_DEST_PREFIXES {
+            if dst_canonical.starts_with(prefix) {
+                anyhow::bail!(
+                    "Hedef yol korumalı bir sistem dizini içinde: {}",
+                    prefix
+                );
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn execute(&self, db: Arc<SqlitePool>) -> anyhow::Result<LogEntry> {
+        // Validate paths before doing anything else
+        self.validate_paths()?;
+
         let started_at = Utc::now();
 
         // Insert initial log row with status Running

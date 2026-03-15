@@ -9,6 +9,7 @@ import {
   TbOutlineChevronLeft,
 } from "solid-icons/tb";
 import { store, setStore } from "../../store";
+import { api } from "../../api/tauri";
 import { t } from "../../i18n";
 import styles from "./Sidebar.module.css";
 
@@ -50,7 +51,11 @@ export function Sidebar() {
 
       <button
         class={styles.collapseBtn}
-        onClick={() => setStore("sidebarCollapsed", !collapsed())}
+        onClick={() => {
+          const next = !collapsed();
+          setStore("sidebarCollapsed", next);
+          api.settings.setValue("sidebar_collapsed", String(next)).catch(() => {});
+        }}
         title={collapsed() ? t("nav_expand") : t("nav_collapse")}
       >
         {collapsed()

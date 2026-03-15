@@ -49,6 +49,11 @@ export async function loadSettings() {
 export async function initStore() {
   setStore("isLoading", true);
   await Promise.all([refreshSources(), refreshLogs(), loadSettings()]);
+  // Restore sidebar collapsed state from DB
+  const collapsed = await api.settings.getValue("sidebar_collapsed").catch(() => null);
+  if (collapsed !== null) {
+    setStore("sidebarCollapsed", collapsed === "true");
+  }
   setStore("isLoading", false);
 }
 

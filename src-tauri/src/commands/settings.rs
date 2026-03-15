@@ -8,6 +8,29 @@ use tauri_plugin_autostart::ManagerExt;
 use crate::AppState;
 use crate::db::queries;
 
+/// Reads a single setting value by key. Returns null if not set.
+#[tauri::command]
+pub async fn get_setting_value(
+    state: State<'_, AppState>,
+    key: String,
+) -> Result<Option<String>, String> {
+    queries::get_setting(&state.db, &key)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Writes a single setting key/value pair.
+#[tauri::command]
+pub async fn set_setting_value(
+    state: State<'_, AppState>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    queries::upsert_setting(&state.db, &key, &value)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppSettings {
     pub run_on_startup: bool,
