@@ -14,8 +14,14 @@ pub async fn run_oauth_flow(
     provider:    String,   // "onedrive" | "gdrive" | "dropbox"
     folder_path: String,
 ) -> Result<OAuthConfig, String> {
-    // Bind a random local port — keeps it open throughout the flow
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+    // Dropbox requires a pre-registered redirect URI, so we use a fixed port.
+    // Other providers accept any localhost URI dynamically.
+    let bind_addr = if provider == "dropbox" {
+        "127.0.0.1:17373"
+    } else {
+        "127.0.0.1:0"
+    };
+    let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
         .map_err(|e| format!("Port bağlanamadı: {}", e))?;
     let port = listener.local_addr()
