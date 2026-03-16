@@ -1,5 +1,5 @@
-use crate::models::{S3Config, SftpConfig};
-use crate::engine::{cloud_copier, sftp_copier};
+use crate::models::{S3Config, SftpConfig, WebDavConfig};
+use crate::engine::{cloud_copier, sftp_copier, webdav_copier};
 
 #[tauri::command]
 pub async fn test_cloud_connection(
@@ -52,4 +52,17 @@ pub async fn test_sftp_connection(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn test_webdav_connection(
+    url: String,
+    username: String,
+    password: String,
+    root_path: String,
+) -> Result<(), String> {
+    let config = WebDavConfig { url, username, password, root_path };
+    webdav_copier::test_connection(&config)
+        .await
+        .map_err(|e| e.to_string())
 }

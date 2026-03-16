@@ -1,6 +1,6 @@
 use sqlx::SqlitePool;
 use chrono::{DateTime, Utc};
-use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig};
+use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig};
 use crate::models::schedule::{Schedule, RetentionPolicy};
 use std::str::FromStr;
 
@@ -122,6 +122,35 @@ fn decrypt_oauth_config(enc: &str) -> Option<OAuthConfig> {
     serde_json::from_str::<OAuthConfig>(&json).ok()
 }
 
+fn decrypt_webdav_config(enc: &str) -> Option<WebDavConfig> {
+    use sysinfo::System;
+    use sha2::{Sha256, Digest};
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
+
+    let hw_raw = {
+        let mut sys = System::new();
+        sys.refresh_memory();
+        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
+        let total_memory = sys.total_memory();
+        let cpu_count = sys.cpus().len();
+        format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
+    };
+    let key_bytes: [u8; 32] = {
+        let mut hasher = Sha256::new();
+        hasher.update(hw_raw.as_bytes());
+        hasher.finalize().into()
+    };
+    let combined = BASE64.decode(enc).ok()?;
+    if combined.len() < 13 { return None; }
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(&combined[..12]);
+    let plaintext = cipher.decrypt(nonce, &combined[12..]).ok()?;
+    let json = String::from_utf8(plaintext).ok()?;
+    serde_json::from_str::<WebDavConfig>(&json).ok()
+}
+
 fn parse_destination_type(s: &str) -> DestinationType {
     match s {
         "S3" => DestinationType::S3,
@@ -129,6 +158,8 @@ fn parse_destination_type(s: &str) -> DestinationType {
         "Sftp" => DestinationType::Sftp,
         "OneDrive" => DestinationType::OneDrive,
         "GoogleDrive" => DestinationType::GoogleDrive,
+        "Dropbox" => DestinationType::Dropbox,
+        "WebDav" => DestinationType::WebDav,
         _ => DestinationType::Local,
     }
 }
@@ -140,6 +171,8 @@ fn destination_type_str(dt: &DestinationType) -> &'static str {
         DestinationType::Sftp => "Sftp",
         DestinationType::OneDrive => "OneDrive",
         DestinationType::GoogleDrive => "GoogleDrive",
+        DestinationType::Dropbox => "Dropbox",
+        DestinationType::WebDav => "WebDav",
         DestinationType::Local => "Local",
     }
 }
@@ -304,7 +337,8 @@ pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::
             let destination_type = parse_destination_type(&destination_type_str_val);
             let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
             let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
-            let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
+            let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
+            let webdav_config = if destination_type == DestinationType::WebDav { cloud_config_json_enc.as_deref().and_then(decrypt_webdav_config) } else { None };
             let encrypt_int: i64 = row.try_get("encrypt").unwrap_or(0);
             let encrypt_password_enc: Option<String> = row.try_get("encrypt_password_enc").unwrap_or(None);
             let encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
@@ -325,6 +359,7 @@ pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::
                 cloud_config,
                 sftp_config,
                 oauth_config,
+                webdav_config,
                 encrypt: encrypt_int != 0,
                 encrypt_password_enc,
                 encrypt_salt,
@@ -348,6 +383,9 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
         let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
         Some(encrypt_cloud_config(&json)?)
     } else if let Some(ref config) = dest.oauth_config {
+        let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
+        Some(encrypt_cloud_config(&json)?)
+    } else if let Some(ref config) = dest.webdav_config {
         let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
         Some(encrypt_cloud_config(&json)?)
     } else {
@@ -395,6 +433,9 @@ pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
         let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
         Some(encrypt_cloud_config(&json)?)
     } else if let Some(ref config) = dest.oauth_config {
+        let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
+        Some(encrypt_cloud_config(&json)?)
+    } else if let Some(ref config) = dest.webdav_config {
         let json = serde_json::to_string(config).map_err(|e| anyhow::anyhow!(e))?;
         Some(encrypt_cloud_config(&json)?)
     } else {
@@ -475,7 +516,8 @@ pub async fn get_destinations_for_source(
         let destination_type = parse_destination_type(&destination_type_str_val);
         let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
         let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
-        let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
+        let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
+        let webdav_config = if destination_type == DestinationType::WebDav { cloud_config_json_enc.as_deref().and_then(decrypt_webdav_config) } else { None };
         let encrypt_int: i64 = row.try_get("encrypt").unwrap_or(0);
         let encrypt_password_enc: Option<String> = row.try_get("encrypt_password_enc").unwrap_or(None);
         let encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
@@ -496,6 +538,7 @@ pub async fn get_destinations_for_source(
             cloud_config,
             sftp_config,
             oauth_config,
+            webdav_config,
             encrypt: encrypt_int != 0,
             encrypt_password_enc,
             encrypt_salt,
@@ -558,7 +601,8 @@ pub async fn get_all_active_destinations(
         let destination_type = parse_destination_type(&destination_type_str_val);
         let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
         let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
-        let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
+        let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
+        let webdav_config = if destination_type == DestinationType::WebDav { cloud_config_json_enc.as_deref().and_then(decrypt_webdav_config) } else { None };
 
         let source = Source {
             id: s_id.clone(),
@@ -590,6 +634,7 @@ pub async fn get_all_active_destinations(
             cloud_config,
             sftp_config,
             oauth_config,
+            webdav_config,
             encrypt: d_encrypt_int != 0,
             encrypt_password_enc: d_encrypt_password_enc,
             encrypt_salt: d_encrypt_salt,

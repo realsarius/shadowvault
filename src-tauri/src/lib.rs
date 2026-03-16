@@ -206,6 +206,7 @@ pub fn run() {
             commands::preview::preview_backup,
             commands::cloud::test_cloud_connection,
             commands::cloud::test_sftp_connection,
+            commands::cloud::test_webdav_connection,
             commands::oauth::run_oauth_flow,
             commands::oauth::test_oauth_connection,
             commands::vault::create_vault,

@@ -9,6 +9,10 @@ const GDRIVE_AUTH_URL:  &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GDRIVE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 const GDRIVE_SCOPE:     &str = "https://www.googleapis.com/auth/drive.file";
 
+const DROPBOX_AUTH_URL:  &str = "https://www.dropbox.com/oauth2/authorize";
+const DROPBOX_TOKEN_URL: &str = "https://api.dropboxapi.com/oauth2/token";
+const DROPBOX_SCOPE:     &str = "";
+
 pub struct PkceSession {
     pub code_verifier: String,
     pub redirect_uri:  String,
@@ -52,6 +56,7 @@ pub fn build_pkce_session(
     let (auth_url_base, scope) = match provider {
         "onedrive" => (ONEDRIVE_AUTH_URL, ONEDRIVE_SCOPE),
         "gdrive"   => (GDRIVE_AUTH_URL,   GDRIVE_SCOPE),
+        "dropbox"  => (DROPBOX_AUTH_URL,  DROPBOX_SCOPE),
         p => anyhow::bail!("Unknown OAuth provider: {}", p),
     };
 
@@ -61,7 +66,9 @@ pub fn build_pkce_session(
         q.append_pair("client_id",             client_id);
         q.append_pair("response_type",         "code");
         q.append_pair("redirect_uri",          &redirect_uri);
-        q.append_pair("scope",                 scope);
+        if !scope.is_empty() {
+            q.append_pair("scope", scope);
+        }
         q.append_pair("state",                 &state);
         q.append_pair("code_challenge",        &code_challenge);
         q.append_pair("code_challenge_method", "S256");
@@ -69,6 +76,10 @@ pub fn build_pkce_session(
         if provider == "gdrive" {
             q.append_pair("access_type", "offline");
             q.append_pair("prompt",      "consent");
+        }
+        // Dropbox: needed to receive refresh_token
+        if provider == "dropbox" {
+            q.append_pair("token_access_type", "offline");
         }
     }
 
@@ -176,6 +187,7 @@ pub async fn exchange_code(
     let token_url = match provider {
         "onedrive" => ONEDRIVE_TOKEN_URL,
         "gdrive"   => GDRIVE_TOKEN_URL,
+        "dropbox"  => DROPBOX_TOKEN_URL,
         p => anyhow::bail!("Unknown provider: {}", p),
     };
 
@@ -209,6 +221,7 @@ pub async fn ensure_fresh_token(config: &OAuthConfig) -> anyhow::Result<OAuthCon
     let token_url = match config.provider.as_str() {
         "onedrive" => ONEDRIVE_TOKEN_URL,
         "gdrive"   => GDRIVE_TOKEN_URL,
+        "dropbox"  => DROPBOX_TOKEN_URL,
         p => anyhow::bail!("Unknown provider: {}", p),
     };
 

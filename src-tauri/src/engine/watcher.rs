@@ -95,7 +95,7 @@ impl FileWatcher {
         let path_map_len = path_map.len();
         let task = tokio::task::spawn(async move {
             let mut last_triggered: HashMap<String, Instant> = HashMap::new();
-            let debounce = Duration::from_secs(2);
+            let debounce = Duration::from_millis(500);
 
             while let Some(event) = rx.recv().await {
                 let is_relevant = matches!(

@@ -3,46 +3,33 @@ use chrono::Utc;
 use sqlx::SqlitePool;
 use tauri::Emitter;
 
-use crate::models::{Source, Destination, SourceType, OAuthConfig, LogEntry};
+use crate::models::{Source, Destination, SourceType, WebDavConfig, LogEntry};
 use crate::db::queries;
-use crate::engine::oauth_token;
 
-pub struct OAuthCopyJob {
+pub struct WebDavCopyJob {
     pub source:      Source,
     pub destination: Destination,
     pub trigger:     String,
     pub app:         Option<tauri::AppHandle>,
 }
 
-// ── opendal operator builder ─────────────────────────────────────────────────
+fn build_operator(config: &WebDavConfig) -> anyhow::Result<opendal::Operator> {
+    let root = if config.root_path.is_empty() {
+        "/ShadowVault".to_string()
+    } else {
+        config.root_path.clone()
+    };
 
-fn build_operator(config: &OAuthConfig) -> anyhow::Result<opendal::Operator> {
-    match config.provider.as_str() {
-        "onedrive" => {
-            let builder = opendal::services::Onedrive::default()
-                .access_token(&config.access_token)
-                .root(&config.folder_path);
-            Ok(opendal::Operator::new(builder)?.finish())
-        }
-        "gdrive" => {
-            let builder = opendal::services::Gdrive::default()
-                .access_token(&config.access_token)
-                .root(&config.folder_path);
-            Ok(opendal::Operator::new(builder)?.finish())
-        }
-        "dropbox" => {
-            let builder = opendal::services::Dropbox::default()
-                .access_token(&config.access_token)
-                .root(&config.folder_path);
-            Ok(opendal::Operator::new(builder)?.finish())
-        }
-        p => anyhow::bail!("Bilinmeyen OAuth sağlayıcısı: {}", p),
-    }
+    let builder = opendal::services::Webdav::default()
+        .endpoint(&config.url)
+        .username(&config.username)
+        .password(&config.password)
+        .root(&root);
+
+    Ok(opendal::Operator::new(builder)?.finish())
 }
 
-// ── OAuthCopyJob ─────────────────────────────────────────────────────────────
-
-impl OAuthCopyJob {
+impl WebDavCopyJob {
     fn emit_progress(&self, files_done: i32, files_total: i32, bytes_done: i64) {
         if let Some(app) = &self.app {
             let _ = app.emit("copy-progress", serde_json::json!({
@@ -55,8 +42,8 @@ impl OAuthCopyJob {
     }
 
     pub async fn execute(&self, db: Arc<SqlitePool>) -> anyhow::Result<LogEntry> {
-        let config = self.destination.oauth_config.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("OAuth config eksik"))?
+        let config = self.destination.webdav_config.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("WebDAV config eksik"))?
             .clone();
 
         let started_at = Utc::now();
@@ -72,22 +59,13 @@ impl OAuthCopyJob {
             &self.trigger,
         ).await?;
 
-        // Refresh token if needed and persist updated config
-        let fresh_config = oauth_token::ensure_fresh_token(&config).await?;
-        if fresh_config.access_token != config.access_token {
-            if let Err(e) = queries::update_oauth_token(&db, &self.destination.id, &fresh_config).await {
-                log::warn!("OAuth token güncelleme başarısız: {}", e);
-            }
-        }
-
         let version_key = format!(
             "{}_{}",
             self.source.name,
             started_at.format("%Y-%m-%dT%H-%M-%SZ")
         );
-        let display_path = format!("{}://{}/{}",
-            fresh_config.provider,
-            fresh_config.folder_path.trim_end_matches('/'),
+        let display_path = format!("webdav://{}/{}",
+            config.url.trim_start_matches("https://").trim_start_matches("http://"),
             version_key,
         );
 
@@ -100,20 +78,18 @@ impl OAuthCopyJob {
                 })
             } else { None };
 
-        // Collect files
         let file_entries = self.collect_files(since).await?;
         let total_files = file_entries.len() as i32;
         self.emit_progress(0, total_files, 0);
 
-        // Build operator and upload
-        let op = build_operator(&fresh_config)?;
+        let op = build_operator(&config)?;
         let upload_result = self.do_upload(&op, &version_key, &file_entries).await;
 
         let ended_at = Utc::now();
 
         match upload_result {
             Ok((bytes_copied, files_copied)) => {
-                let checksum = Some(format!("{} dosya OAuth bulutuna yüklendi", files_copied));
+                let checksum = Some(format!("{} dosya WebDAV'a yüklendi", files_copied));
                 queries::update_log_entry_completed(
                     &db, log_id, ended_at, "Success",
                     Some(bytes_copied), Some(files_copied),
@@ -196,7 +172,7 @@ impl OAuthCopyJob {
             let len = data.len() as i64;
 
             op.write(&remote_path, data).await
-                .map_err(|e| anyhow::anyhow!("Yükleme hatası {}: {}", remote_path, e))?;
+                .map_err(|e| anyhow::anyhow!("WebDAV yükleme hatası {}: {}", remote_path, e))?;
 
             total_bytes += len;
             files_done  += 1;
@@ -250,11 +226,10 @@ impl OAuthCopyJob {
     }
 }
 
-/// Test connection by stat'ing the root.
-pub async fn test_connection(config: &OAuthConfig) -> anyhow::Result<()> {
-    let fresh = oauth_token::ensure_fresh_token(config).await?;
-    let op = build_operator(&fresh)?;
+/// Test WebDAV connection by stat'ing the root.
+pub async fn test_connection(config: &WebDavConfig) -> anyhow::Result<()> {
+    let op = build_operator(config)?;
     op.stat("/").await
-        .map_err(|e| anyhow::anyhow!("Bağlantı testi başarısız: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("WebDAV bağlantı testi başarısız: {}", e))?;
     Ok(())
 }

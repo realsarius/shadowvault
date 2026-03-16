@@ -9,7 +9,7 @@ import { UpgradeModal } from "../../pages/License";
 import { t } from "../../i18n";
 import { api } from "../../api/tauri";
 import { store } from "../../store";
-import type { ScheduleType, RetentionPolicy, DestinationType, S3Config, SftpConfig, OAuthConfig } from "../../store/types";
+import type { ScheduleType, RetentionPolicy, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig } from "../../store/types";
 import styles from "./AddDestinationModal.module.css";
 
 interface Props {
@@ -50,8 +50,14 @@ export function AddDestinationModal(props: Props) {
   const [sftpPassword, setSftpPassword] = createSignal("");
   const [sftpKeyPath, setSftpKeyPath] = createSignal("");
   const [sftpRemotePath, setSftpRemotePath] = createSignal("/");
+  // WebDAV fields
+  const [webdavUrl, setWebdavUrl] = createSignal("");
+  const [webdavUsername, setWebdavUsername] = createSignal("");
+  const [webdavPassword, setWebdavPassword] = createSignal("");
+  const [webdavRootPath, setWebdavRootPath] = createSignal("/ShadowVault");
+
   // OAuth fields
-  const [oauthProvider, setOauthProvider] = createSignal<"onedrive" | "gdrive">("onedrive");
+  const [oauthProvider, setOauthProvider] = createSignal<"onedrive" | "gdrive" | "dropbox">("onedrive");
   const [oauthClientId, setOauthClientId] = createSignal("");
   const [oauthFolderPath, setOauthFolderPath] = createSignal("/ShadowVault");
   const [oauthConfig, setOauthConfig] = createSignal<OAuthConfig | null>(null);
@@ -84,6 +90,7 @@ export function AddDestinationModal(props: Props) {
     setAccessKeyId(""); setSecretAccessKey(""); setAccountId(""); setPrefix("");
     setSftpHost(""); setSftpPort(22); setSftpUsername(""); setSftpAuthType("password");
     setSftpPassword(""); setSftpKeyPath(""); setSftpRemotePath("/");
+    setWebdavUrl(""); setWebdavUsername(""); setWebdavPassword(""); setWebdavRootPath("/ShadowVault");
     setOauthProvider("onedrive"); setOauthClientId(""); setOauthFolderPath("/ShadowVault");
     setOauthConfig(null); setOauthStatus("idle"); setOauthError("");
     setSchedule({ type: "Interval", value: { minutes: 60 } });
@@ -110,6 +117,22 @@ export function AddDestinationModal(props: Props) {
   };
 
   const handleTestConnection = async () => {
+    if (destType() === "WebDav") {
+      if (!webdavUrl().trim() || !webdavUsername().trim()) {
+        toast.error(t("webdav_fields_required")); return;
+      }
+      setTesting(true);
+      try {
+        await api.cloud.testWebDavConnection(
+          webdavUrl().trim(), webdavUsername().trim(),
+          webdavPassword().trim(), webdavRootPath().trim() || "/ShadowVault",
+        );
+        toast.success(t("cloud_connection_ok"));
+      } catch (e: any) {
+        toast.error(e?.message ?? t("cloud_connection_err"));
+      } finally { setTesting(false); }
+      return;
+    }
     const prov = cloudProvider();
     if (prov === "Sftp") {
       if (!sftpHost().trim() || !sftpUsername().trim()) {
@@ -177,7 +200,17 @@ export function AddDestinationModal(props: Props) {
         };
         const displayPath = `sftp://${sftpHost().trim()}${sftpRemotePath().trim() || "/"}`;
         await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), "Sftp", null, sftpConfig, null);
-      } else if (destType() === "OneDrive" || destType() === "GoogleDrive") {
+      } else if (destType() === "WebDav") {
+        if (!webdavUrl().trim() || !webdavUsername().trim()) { toast.error(t("webdav_fields_required")); setSaving(false); return; }
+        const webdavConfig: WebDavConfig = {
+          url: webdavUrl().trim(),
+          username: webdavUsername().trim(),
+          password: webdavPassword().trim(),
+          root_path: webdavRootPath().trim() || "/ShadowVault",
+        };
+        const displayPath = `webdav://${webdavUrl().trim().replace(/^https?:\/\//, "")}${webdavRootPath().trim() || "/ShadowVault"}`;
+        await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), "WebDav", null, null, null, false, null, webdavConfig);
+      } else if (destType() === "OneDrive" || destType() === "GoogleDrive" || destType() === "Dropbox") {
         if (!oauthConfig()) { toast.error(t("oauth_not_connected")); setSaving(false); return; }
         const displayPath = `${oauthProvider()}://${oauthFolderPath().trim() || "/ShadowVault"}`;
         await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), destType() as DestinationType, null, null, oauthConfig());
@@ -248,10 +281,17 @@ export function AddDestinationModal(props: Props) {
         </button>
         <button
           class={styles.typeTab}
-          data-active={String(destType() === "OneDrive" || destType() === "GoogleDrive")}
+          data-active={String(destType() === "OneDrive" || destType() === "GoogleDrive" || destType() === "Dropbox")}
           onClick={() => { setDestType("OneDrive"); setOauthProvider("onedrive"); setCloudProvider("OAuth"); }}
         >
           {t("dest_type_oauth")}
+        </button>
+        <button
+          class={styles.typeTab}
+          data-active={String(destType() === "WebDav")}
+          onClick={() => { setDestType("WebDav"); }}
+        >
+          {t("dest_type_webdav")}
         </button>
       </div>
 
@@ -407,19 +447,55 @@ export function AddDestinationModal(props: Props) {
         </div>
       </Show>
 
-      {/* OAuth fields (OneDrive / Google Drive) */}
-      <Show when={destType() === "OneDrive" || destType() === "GoogleDrive"}>
+      {/* WebDAV fields */}
+      <Show when={destType() === "WebDav"}>
+        <div class={styles.field}>
+          <label class={styles.label}>{t("webdav_url")}</label>
+          <input class={styles.input} type="text" placeholder={t("webdav_url_ph")}
+            value={webdavUrl()} onInput={e => setWebdavUrl(e.currentTarget.value)} />
+          <div class={styles.hint}>{t("webdav_url_hint")}</div>
+        </div>
+
+        <div class={styles.retentionRow}>
+          <div class={styles.retentionCol} style={{ flex: "2" }}>
+            <label class={styles.label}>{t("webdav_username")}</label>
+            <input class={styles.input} type="text" placeholder={t("webdav_username_ph")}
+              value={webdavUsername()} onInput={e => setWebdavUsername(e.currentTarget.value)} />
+          </div>
+          <div class={styles.retentionCol} style={{ flex: "2" }}>
+            <label class={styles.label}>{t("webdav_password")}</label>
+            <input class={styles.input} type="password" placeholder="••••••••"
+              value={webdavPassword()} onInput={e => setWebdavPassword(e.currentTarget.value)} />
+          </div>
+        </div>
+
+        <div class={styles.field}>
+          <label class={styles.label}>{t("webdav_root_path")}</label>
+          <input class={styles.input} type="text" placeholder="/ShadowVault"
+            value={webdavRootPath()} onInput={e => setWebdavRootPath(e.currentTarget.value)} />
+        </div>
+
+        <div class={styles.field}>
+          <Button variant="ghost" size="sm" onClick={handleTestConnection} disabled={testing()}>
+            {testing() ? t("cloud_testing") : t("cloud_test_btn")}
+          </Button>
+        </div>
+      </Show>
+
+      {/* OAuth fields (OneDrive / Google Drive / Dropbox) */}
+      <Show when={destType() === "OneDrive" || destType() === "GoogleDrive" || destType() === "Dropbox"}>
         <div class={styles.field}>
           <label class={styles.label}>{t("oauth_provider")}</label>
           <select class={styles.input} value={oauthProvider()}
             onChange={e => {
-              const v = e.currentTarget.value as "onedrive" | "gdrive";
+              const v = e.currentTarget.value as "onedrive" | "gdrive" | "dropbox";
               setOauthProvider(v);
-              setDestType(v === "onedrive" ? "OneDrive" : "GoogleDrive");
+              setDestType(v === "onedrive" ? "OneDrive" : v === "gdrive" ? "GoogleDrive" : "Dropbox");
               setOauthConfig(null); setOauthStatus("idle");
             }}>
             <option value="onedrive">Microsoft OneDrive</option>
             <option value="gdrive">Google Drive</option>
+            <option value="dropbox">Dropbox</option>
           </select>
         </div>
 

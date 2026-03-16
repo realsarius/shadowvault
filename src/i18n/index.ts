@@ -145,12 +145,23 @@ const tr = {
   sftp_remote_path_ph: "/home/user/backups",
   sftp_fields_required: "Sunucu, port ve kullanıcı adı gereklidir",
 
-  // OAuth cloud destination (OneDrive / Google Drive)
+  // WebDAV destination
+  dest_type_webdav: "WebDAV",
+  webdav_url: "WebDAV URL",
+  webdav_url_ph: "https://nextcloud.example.com/remote.php/dav/files/user",
+  webdav_url_hint: "Nextcloud, ownCloud veya başka bir WebDAV sunucusu",
+  webdav_username: "Kullanıcı Adı",
+  webdav_username_ph: "kullanici",
+  webdav_password: "Şifre",
+  webdav_root_path: "Uzak Klasör",
+  webdav_fields_required: "URL ve kullanıcı adı gereklidir",
+
+  // OAuth cloud destination (OneDrive / Google Drive / Dropbox)
   dest_type_oauth: "OAuth Bulutu",
   oauth_provider: "Sağlayıcı",
   oauth_client_id: "Client ID",
   oauth_client_id_ph: "Uygulama istemci kimliği",
-  oauth_client_id_hint: "Azure / Google Console'dan alınan OAuth2 Client ID",
+  oauth_client_id_hint: "Azure / Google Console / Dropbox App Console'dan alınan OAuth2 Client ID",
   oauth_folder_path: "Uzak Klasör Yolu",
   oauth_connect_btn: "Tarayıcıda Bağlan",
   oauth_waiting: "Yetkilendirme bekleniyor...",
@@ -583,12 +594,23 @@ const en: Record<keyof typeof tr, string> = {
   sftp_remote_path_ph: "/home/user/backups",
   sftp_fields_required: "Host, port and username are required",
 
-  // OAuth cloud destination (OneDrive / Google Drive)
+  // WebDAV destination
+  dest_type_webdav: "WebDAV",
+  webdav_url: "WebDAV URL",
+  webdav_url_ph: "https://nextcloud.example.com/remote.php/dav/files/user",
+  webdav_url_hint: "Nextcloud, ownCloud or any WebDAV server",
+  webdav_username: "Username",
+  webdav_username_ph: "username",
+  webdav_password: "Password",
+  webdav_root_path: "Remote Folder",
+  webdav_fields_required: "URL and username are required",
+
+  // OAuth cloud destination (OneDrive / Google Drive / Dropbox)
   dest_type_oauth: "OAuth Cloud",
   oauth_provider: "Provider",
   oauth_client_id: "Client ID",
   oauth_client_id_ph: "Your app client ID",
-  oauth_client_id_hint: "OAuth2 Client ID from Azure / Google Console",
+  oauth_client_id_hint: "OAuth2 Client ID from Azure / Google Console / Dropbox App Console",
   oauth_folder_path: "Remote Folder Path",
   oauth_connect_btn: "Connect via Browser",
   oauth_waiting: "Waiting for authorization...",

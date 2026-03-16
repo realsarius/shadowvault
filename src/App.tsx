@@ -1,4 +1,4 @@
-import { createEffect, createSignal, onMount, onCleanup, Switch, Match } from "solid-js";
+import { createEffect, createSignal, onMount, onCleanup, Switch, Match, ErrorBoundary } from "solid-js";
 import { listen, emit } from "@tauri-apps/api/event";
 import { Toaster } from "solid-sonner";
 import { api } from "./api/tauri";
@@ -11,6 +11,7 @@ import { LicensePage } from "./pages/LicensePage";
 import { VaultPage } from "./pages/VaultPage";
 import { AboutModal } from "./components/ui/AboutModal";
 import { OnboardingModal } from "./components/ui/OnboardingModal";
+import { ErrorFallback } from "./components/ui/ErrorFallback";
 import { store, setStore, initStore, initLicense } from "./store";
 import "./styles/globals.css";
 
@@ -93,7 +94,7 @@ export function App() {
   });
 
   return (
-    <>
+    <ErrorBoundary fallback={(err, reset) => <ErrorFallback error={err} reset={reset} />}>
       <Layout>
         <Switch>
           <Match when={store.activePage === "dashboard"}><Dashboard /></Match>
@@ -112,6 +113,6 @@ export function App() {
         theme={store.settings?.theme ?? "dark"}
         duration={3500}
       />
-    </>
+    </ErrorBoundary>
   );
 }

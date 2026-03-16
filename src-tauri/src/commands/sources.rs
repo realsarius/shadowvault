@@ -6,7 +6,7 @@ use std::str::FromStr;
 use sqlx::Row;
 
 use crate::AppState;
-use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig};
+use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig};
 use crate::models::schedule::{Schedule, RetentionPolicy};
 use crate::db::queries;
 
@@ -144,6 +144,7 @@ pub async fn add_destination(
     cloud_config: Option<Value>,
     sftp_config: Option<Value>,
     oauth_config: Option<Value>,
+    webdav_config: Option<Value>,
     encrypt: Option<bool>,
     encrypt_password: Option<String>,
 ) -> Result<Destination, String> {
@@ -157,6 +158,8 @@ pub async fn add_destination(
         Some("Sftp")        => DestinationType::Sftp,
         Some("OneDrive")    => DestinationType::OneDrive,
         Some("GoogleDrive") => DestinationType::GoogleDrive,
+        Some("Dropbox")     => DestinationType::Dropbox,
+        Some("WebDav")      => DestinationType::WebDav,
         _ => DestinationType::Local,
     };
     let cloud_cfg: Option<S3Config> = if matches!(dest_type, DestinationType::S3 | DestinationType::R2) {
@@ -165,8 +168,11 @@ pub async fn add_destination(
     let sftp_cfg: Option<SftpConfig> = if dest_type == DestinationType::Sftp {
         sftp_config.and_then(|v| serde_json::from_value(v).ok())
     } else { None };
-    let oauth_cfg: Option<OAuthConfig> = if matches!(dest_type, DestinationType::OneDrive | DestinationType::GoogleDrive) {
+    let oauth_cfg: Option<OAuthConfig> = if matches!(dest_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) {
         oauth_config.and_then(|v| serde_json::from_value(v).ok())
+    } else { None };
+    let webdav_cfg: Option<WebDavConfig> = if dest_type == DestinationType::WebDav {
+        webdav_config.and_then(|v| serde_json::from_value(v).ok())
     } else { None };
 
     let do_encrypt = encrypt.unwrap_or(false);
@@ -198,6 +204,7 @@ pub async fn add_destination(
         cloud_config: cloud_cfg,
         sftp_config: sftp_cfg,
         oauth_config: oauth_cfg,
+        webdav_config: webdav_cfg,
         encrypt: do_encrypt,
         encrypt_password_enc: enc_password,
         encrypt_salt: enc_salt,
@@ -233,6 +240,7 @@ pub async fn update_destination(
     cloud_config: Option<Value>,
     sftp_config: Option<Value>,
     oauth_config: Option<Value>,
+    webdav_config: Option<Value>,
     encrypt: Option<bool>,
     encrypt_password: Option<String>,
 ) -> Result<(), String> {
@@ -283,6 +291,8 @@ pub async fn update_destination(
         Some("Sftp")        => DestinationType::Sftp,
         Some("OneDrive")    => DestinationType::OneDrive,
         Some("GoogleDrive") => DestinationType::GoogleDrive,
+        Some("Dropbox")     => DestinationType::Dropbox,
+        Some("WebDav")      => DestinationType::WebDav,
         _ => DestinationType::Local,
     };
     let cloud_cfg: Option<S3Config> = if matches!(dest_type, DestinationType::S3 | DestinationType::R2) {
@@ -291,8 +301,11 @@ pub async fn update_destination(
     let sftp_cfg: Option<SftpConfig> = if dest_type == DestinationType::Sftp {
         sftp_config.and_then(|v| serde_json::from_value(v).ok())
     } else { None };
-    let oauth_cfg: Option<OAuthConfig> = if matches!(dest_type, DestinationType::OneDrive | DestinationType::GoogleDrive) {
+    let oauth_cfg: Option<OAuthConfig> = if matches!(dest_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) {
         oauth_config.and_then(|v| serde_json::from_value(v).ok())
+    } else { None };
+    let webdav_cfg: Option<WebDavConfig> = if dest_type == DestinationType::WebDav {
+        webdav_config.and_then(|v| serde_json::from_value(v).ok())
     } else { None };
 
     let is_onchange = matches!(schedule_parsed, Schedule::OnChange);
@@ -331,6 +344,7 @@ pub async fn update_destination(
         cloud_config: cloud_cfg,
         sftp_config: sftp_cfg,
         oauth_config: oauth_cfg,
+        webdav_config: webdav_cfg,
         encrypt: resolved_encrypt,
         encrypt_password_enc: resolved_enc_password,
         encrypt_salt: resolved_enc_salt,

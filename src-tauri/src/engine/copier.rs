@@ -233,8 +233,18 @@ impl CopyJob {
                     app: self.app.clone(),
                 }.execute(db).await;
             }
-            crate::models::DestinationType::OneDrive | crate::models::DestinationType::GoogleDrive => {
+            crate::models::DestinationType::OneDrive
+            | crate::models::DestinationType::GoogleDrive
+            | crate::models::DestinationType::Dropbox => {
                 return crate::engine::oauth_copier::OAuthCopyJob {
+                    source: self.source.clone(),
+                    destination: self.destination.clone(),
+                    trigger: self.trigger.clone(),
+                    app: self.app.clone(),
+                }.execute(db).await;
+            }
+            crate::models::DestinationType::WebDav => {
+                return crate::engine::webdav_copier::WebDavCopyJob {
                     source: self.source.clone(),
                     destination: self.destination.clone(),
                     trigger: self.trigger.clone(),

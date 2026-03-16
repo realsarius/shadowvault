@@ -10,6 +10,8 @@ pub enum DestinationType {
     Sftp,
     OneDrive,
     GoogleDrive,
+    Dropbox,
+    WebDav,
 }
 
 impl Default for DestinationType {
@@ -52,6 +54,14 @@ pub struct SftpConfig {
     pub password: Option<String>,
     pub private_key: Option<String>, // path to private key file
     pub remote_path: String,        // base directory on server
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebDavConfig {
+    pub url: String,           // e.g. https://nextcloud.example.com/remote.php/dav/files/user
+    pub username: String,
+    pub password: String,
+    pub root_path: String,     // sub-path within the WebDAV root
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +127,8 @@ pub struct Destination {
     pub sftp_config: Option<SftpConfig>,
     #[serde(default)]
     pub oauth_config: Option<OAuthConfig>,
+    #[serde(default)]
+    pub webdav_config: Option<WebDavConfig>,
     /// Whether files at the destination should be AES-256-GCM encrypted
     #[serde(default)]
     pub encrypt: bool,

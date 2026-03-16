@@ -206,6 +206,7 @@ async fn apply_import(
                 cloud_config: None,
                 sftp_config: None,
                 oauth_config: None,
+                webdav_config: None,
                 encrypt: false,
                 encrypt_password_enc: None,
                 encrypt_salt: None,

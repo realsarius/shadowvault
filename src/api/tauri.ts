@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Destination, LogEntry, AppSettings, ScheduleType, RetentionPolicy, BackupPreview, DestinationType, S3Config, SftpConfig, OAuthConfig, VaultSummary, VaultEntry } from "../store/types";
+import type { Source, Destination, LogEntry, AppSettings, ScheduleType, RetentionPolicy, BackupPreview, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig, VaultSummary, VaultEntry } from "../store/types";
 
 export const api = {
   sources: {
@@ -11,10 +11,10 @@ export const api = {
     delete: (id: string) => invoke<void>("delete_source", { id }),
   },
   destinations: {
-    add: (sourceId: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, exclusions?: string[], incremental?: boolean, destinationType?: DestinationType, cloudConfig?: S3Config | null, sftpConfig?: SftpConfig | null, oauthConfig?: OAuthConfig | null, encrypt?: boolean, encryptPassword?: string | null) =>
-      invoke<Destination>("add_destination", { sourceId, path, schedule, retention, exclusions: exclusions ?? [], incremental: incremental ?? false, destinationType: destinationType ?? "Local", cloudConfig: cloudConfig ?? null, sftpConfig: sftpConfig ?? null, oauthConfig: oauthConfig ?? null, encrypt: encrypt ?? false, encryptPassword: encryptPassword ?? null }),
-    update: (id: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, enabled: boolean, exclusions?: string[], incremental?: boolean, destinationType?: DestinationType, cloudConfig?: S3Config | null, sftpConfig?: SftpConfig | null, oauthConfig?: OAuthConfig | null, encrypt?: boolean, encryptPassword?: string | null) =>
-      invoke<void>("update_destination", { id, path, schedule, retention, enabled, exclusions: exclusions ?? [], incremental: incremental ?? false, destinationType: destinationType ?? "Local", cloudConfig: cloudConfig ?? null, sftpConfig: sftpConfig ?? null, oauthConfig: oauthConfig ?? null, encrypt: encrypt ?? false, encryptPassword: encryptPassword ?? null }),
+    add: (sourceId: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, exclusions?: string[], incremental?: boolean, destinationType?: DestinationType, cloudConfig?: S3Config | null, sftpConfig?: SftpConfig | null, oauthConfig?: OAuthConfig | null, encrypt?: boolean, encryptPassword?: string | null, webdavConfig?: WebDavConfig | null) =>
+      invoke<Destination>("add_destination", { sourceId, path, schedule, retention, exclusions: exclusions ?? [], incremental: incremental ?? false, destinationType: destinationType ?? "Local", cloudConfig: cloudConfig ?? null, sftpConfig: sftpConfig ?? null, oauthConfig: oauthConfig ?? null, webdavConfig: webdavConfig ?? null, encrypt: encrypt ?? false, encryptPassword: encryptPassword ?? null }),
+    update: (id: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, enabled: boolean, exclusions?: string[], incremental?: boolean, destinationType?: DestinationType, cloudConfig?: S3Config | null, sftpConfig?: SftpConfig | null, oauthConfig?: OAuthConfig | null, encrypt?: boolean, encryptPassword?: string | null, webdavConfig?: WebDavConfig | null) =>
+      invoke<void>("update_destination", { id, path, schedule, retention, enabled, exclusions: exclusions ?? [], incremental: incremental ?? false, destinationType: destinationType ?? "Local", cloudConfig: cloudConfig ?? null, sftpConfig: sftpConfig ?? null, oauthConfig: oauthConfig ?? null, webdavConfig: webdavConfig ?? null, encrypt: encrypt ?? false, encryptPassword: encryptPassword ?? null }),
     delete: (id: string) => invoke<void>("delete_destination", { id }),
     decryptBackup: (folderPath: string, password: string) =>
       invoke<number>("decrypt_backup", { folderPath, password }),
@@ -24,6 +24,8 @@ export const api = {
       invoke<void>("test_cloud_connection", { provider, bucket, region, accessKeyId, secretAccessKey, endpointUrl, prefix }),
     testSftpConnection: (host: string, port: number, username: string, authType: string, password: string | null, privateKey: string | null, remotePath: string) =>
       invoke<void>("test_sftp_connection", { host, port, username, authType, password, privateKey, remotePath }),
+    testWebDavConnection: (url: string, username: string, password: string, rootPath: string) =>
+      invoke<void>("test_webdav_connection", { url, username, password, rootPath }),
   },
   oauth: {
     runFlow: (provider: string, clientId: string, folderPath: string) =>

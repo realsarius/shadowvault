@@ -1,6 +1,6 @@
 export type SourceType = "File" | "Directory";
 
-export type DestinationType = "Local" | "S3" | "R2" | "Sftp" | "OneDrive" | "GoogleDrive";
+export type DestinationType = "Local" | "S3" | "R2" | "Sftp" | "OneDrive" | "GoogleDrive" | "Dropbox" | "WebDav";
 
 export interface S3Config {
   provider: "S3" | "R2";
@@ -12,8 +12,15 @@ export interface S3Config {
   prefix: string;
 }
 
+export interface WebDavConfig {
+  url: string;
+  username: string;
+  password: string;
+  root_path: string;
+}
+
 export interface OAuthConfig {
-  provider: "onedrive" | "gdrive";
+  provider: "onedrive" | "gdrive" | "dropbox";
   client_id: string;
   access_token: string;
   refresh_token: string;
@@ -60,6 +67,7 @@ export interface Destination {
   cloud_config: S3Config | null;
   sftp_config: SftpConfig | null;
   oauth_config: OAuthConfig | null;
+  webdav_config: WebDavConfig | null;
   encrypt: boolean;
 }
 
