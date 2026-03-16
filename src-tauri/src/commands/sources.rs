@@ -13,36 +13,12 @@ use crate::db::queries;
 fn encrypt_password_for_storage(password: &str) -> anyhow::Result<(String, String)> {
     use rand::RngCore;
     use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-    use sysinfo::System;
-    use sha2::{Sha256, Digest};
-    use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm, Key};
 
-    // Generate random 32-byte Argon2id salt
     let mut salt_bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut salt_bytes);
     let salt_b64 = BASE64.encode(salt_bytes);
 
-    // Encrypt the password with HW key
-    let hw_raw = {
-        let mut sys = System::new();
-        sys.refresh_memory();
-        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
-        format!("shadowvault:{}:{}:{}", hostname, sys.total_memory(), sys.cpus().len())
-    };
-    let key_bytes: [u8; 32] = {
-        let mut hasher = Sha256::new();
-        hasher.update(hw_raw.as_bytes());
-        hasher.finalize().into()
-    };
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    let ciphertext = cipher.encrypt(&nonce, password.as_bytes())
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    let mut combined = nonce.to_vec();
-    combined.extend(ciphertext);
-    let enc = BASE64.encode(combined);
-
+    let enc = crate::crypto_utils::hw_encrypt(password)?;
     Ok((enc, salt_b64))
 }
 

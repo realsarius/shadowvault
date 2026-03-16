@@ -5,13 +5,12 @@ import { TbOutlineX, TbOutlineCrown, TbOutlineLock, TbOutlineExternalLink } from
 import { store } from "../../store";
 import { t } from "../../i18n";
 import styles from "./AboutModal.module.css";
+import { BUY_URL } from "../../constants";
 
 interface AboutModalProps {
   open: boolean;
   onClose: () => void;
 }
-
-const BUY_URL = "https://berkansozer.lemonsqueezy.com/buy/shadowvault-pro";
 
 export function AboutModal(props: AboutModalProps) {
   const [version, setVersion] = createSignal("0.1.0");

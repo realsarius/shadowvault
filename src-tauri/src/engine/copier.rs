@@ -5,13 +5,13 @@ use sqlx::SqlitePool;
 use sha2::{Sha256, Digest};
 use globset::{Glob, GlobSetBuilder};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use sysinfo::System;
 
 use tauri::Emitter;
 
 use crate::models::{Source, Destination, SourceType, LogEntry};
 use crate::db::queries;
 use crate::engine::versioning;
+use crate::crypto_utils::hw_decrypt;
 
 pub struct CopyJob {
     pub source: Source,
@@ -34,30 +34,11 @@ const BLOCKED_DEST_PREFIXES: &[&str] = &[
 
 /// Decrypts the hardware-ID-protected stored password, derives Argon2id key.
 fn derive_backup_key(encrypt_password_enc: &str, encrypt_salt: &str) -> anyhow::Result<[u8; 32]> {
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
     use argon2::{Argon2, Params, Version};
 
     // 1. Decrypt the stored password using HW key
-    let hw_raw = {
-        let mut sys = System::new();
-        sys.refresh_memory();
-        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
-        format!("shadowvault:{}:{}:{}", hostname, sys.total_memory(), sys.cpus().len())
-    };
-    let key_bytes: [u8; 32] = {
-        let mut hasher = Sha256::new();
-        hasher.update(hw_raw.as_bytes());
-        hasher.finalize().into()
-    };
-    let combined = BASE64.decode(encrypt_password_enc)?;
-    if combined.len() < 13 {
-        anyhow::bail!("Encrypted password too short");
-    }
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(&combined[..12]);
-    let password_bytes = cipher.decrypt(nonce, &combined[12..])
-        .map_err(|_| anyhow::anyhow!("Failed to decrypt backup password"))?;
+    let password_bytes = hw_decrypt(encrypt_password_enc)
+        .ok_or_else(|| anyhow::anyhow!("Failed to decrypt backup password"))?;
     let password = String::from_utf8(password_bytes)?;
 
     // 2. Derive Argon2id key from password + salt

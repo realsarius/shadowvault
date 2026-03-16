@@ -1,16 +1,10 @@
 use tauri::State;
 use uuid::Uuid;
-use sysinfo::System;
 use serde::Serialize;
-use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
-    Aes256Gcm, Key, Nonce,
-};
-use sha2::{Sha256, Digest};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 use crate::AppState;
 use crate::db::queries;
+use crate::crypto_utils::{hw_id_raw, hw_encrypt, hw_decrypt_string};
 
 const LICENSE_API: &str = "https://license.berkansozer.com";
 
@@ -35,68 +29,21 @@ struct LicenseApiRequest {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-fn hardware_id_raw() -> String {
-    let mut sys = System::new();
-    sys.refresh_memory();
-    let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
-    let total_memory = sys.total_memory();
-    let cpu_count = sys.cpus().len();
-    format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
-}
-
 fn hardware_id_formatted(raw: &str) -> String {
     let uuid = Uuid::new_v5(&Uuid::NAMESPACE_DNS, raw.as_bytes());
     format!("HW-{}", uuid.to_string().to_uppercase())
 }
 
-fn derive_aes_key(hw_raw: &str) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(hw_raw.as_bytes());
-    hasher.finalize().into()
-}
-
-fn encrypt_value(plaintext: &str, hw_raw: &str) -> Result<String, String> {
-    let key_bytes = derive_aes_key(hw_raw);
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-
-    let ciphertext = cipher
-        .encrypt(&nonce, plaintext.as_bytes())
-        .map_err(|e| e.to_string())?;
-
-    let mut combined = nonce.to_vec();
-    combined.extend(ciphertext);
-    Ok(BASE64.encode(combined))
-}
-
-fn decrypt_value(encoded: &str, hw_raw: &str) -> Result<String, String> {
-    let combined = BASE64.decode(encoded).map_err(|e| e.to_string())?;
-    if combined.len() < 13 {
-        return Err("Ciphertext too short".to_string());
-    }
-    let key_bytes = derive_aes_key(hw_raw);
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(&combined[..12]);
-    let plaintext_bytes = cipher
-        .decrypt(nonce, &combined[12..])
-        .map_err(|_| "Decryption failed".to_string())?;
-    String::from_utf8(plaintext_bytes).map_err(|e| e.to_string())
-}
-
 /// Plaintext key stored by an older version → try to decrypt, fall back to raw
-fn resolve_stored_key(stored: &str, hw_raw: &str) -> Option<String> {
-    match decrypt_value(stored, hw_raw) {
-        Ok(k) => Some(k),
-        Err(_) => {
-            // Legacy plaintext (pre-encryption)
-            if stored.starts_with("SV-") {
-                Some(stored.to_string())
-            } else {
-                None
-            }
-        }
+fn resolve_stored_key(stored: &str) -> Option<String> {
+    if let Some(k) = hw_decrypt_string(stored) {
+        return Some(k);
+    }
+    // Legacy plaintext (pre-encryption)
+    if stored.starts_with("SV-") {
+        Some(stored.to_string())
+    } else {
+        None
     }
 }
 
@@ -106,7 +53,7 @@ fn resolve_stored_key(stored: &str, hw_raw: &str) -> Option<String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn get_hardware_id() -> Result<String, String> {
-    let raw = hardware_id_raw();
+    let raw = hw_id_raw();
     Ok(hardware_id_formatted(&raw))
 }
 
@@ -118,7 +65,7 @@ pub async fn activate_license(
     state: State<'_, AppState>,
     key: String,
 ) -> Result<ActivateResult, String> {
-    let hw_raw = hardware_id_raw();
+    let hw_raw = hw_id_raw();
     let hw_id = hardware_id_formatted(&hw_raw);
 
     let client = reqwest::Client::builder()
@@ -139,7 +86,7 @@ pub async fn activate_license(
         || data.get("activated_at").and_then(|v| v.as_str()).is_some();
 
     if is_activated {
-        let encrypted = encrypt_value(&key, &hw_raw)?;
+        let encrypted = hw_encrypt(&key).map_err(|e| e.to_string())?;
         queries::upsert_setting(&state.db, "license_key", &encrypted)
             .await
             .map_err(|e| e.to_string())?;
@@ -160,8 +107,7 @@ pub async fn activate_license(
 #[tauri::command]
 #[specta::specta]
 pub async fn validate_license(state: State<'_, AppState>) -> Result<ValidateResult, String> {
-    let hw_raw = hardware_id_raw();
-    let hw_id = hardware_id_formatted(&hw_raw);
+    let hw_id = hardware_id_formatted(&hw_id_raw());
 
     let stored = match queries::get_setting(&state.db, "license_key")
         .await
@@ -171,7 +117,7 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<ValidateResu
         _ => return Ok(ValidateResult { status: "invalid".to_string(), offline: None, cached: None }),
     };
 
-    let key = match resolve_stored_key(&stored, &hw_raw) {
+    let key = match resolve_stored_key(&stored) {
         Some(k) => k,
         None => return Ok(ValidateResult { status: "invalid".to_string(), offline: None, cached: None }),
     };
@@ -220,17 +166,12 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<ValidateResu
 #[tauri::command]
 #[specta::specta]
 pub async fn get_stored_license(state: State<'_, AppState>) -> Result<Option<String>, String> {
-    let hw_raw = hardware_id_raw();
     let stored = queries::get_setting(&state.db, "license_key")
         .await
         .map_err(|e| e.to_string())?;
 
     Ok(stored.and_then(|k| {
-        if k.is_empty() {
-            None
-        } else {
-            resolve_stored_key(&k, &hw_raw)
-        }
+        if k.is_empty() { None } else { resolve_stored_key(&k) }
     }))
 }
 
@@ -238,8 +179,7 @@ pub async fn get_stored_license(state: State<'_, AppState>) -> Result<Option<Str
 #[tauri::command]
 #[specta::specta]
 pub async fn store_license(state: State<'_, AppState>, key: String) -> Result<(), String> {
-    let hw_raw = hardware_id_raw();
-    let encrypted = encrypt_value(&key, &hw_raw)?;
+    let encrypted = hw_encrypt(&key).map_err(|e| e.to_string())?;
     queries::upsert_setting(&state.db, "license_key", &encrypted)
         .await
         .map_err(|e| e.to_string())
@@ -248,8 +188,7 @@ pub async fn store_license(state: State<'_, AppState>, key: String) -> Result<()
 /// Core activation logic shared between the Tauri command and the deep link handler.
 /// Returns Ok(true) if activated, Ok(false) if invalid key.
 pub async fn activate_license_with_key(db: &std::sync::Arc<sqlx::SqlitePool>, key: &str) -> anyhow::Result<bool> {
-    let hw_raw = hardware_id_raw();
-    let hw_id = hardware_id_formatted(&hw_raw);
+    let hw_id = hardware_id_formatted(&hw_id_raw());
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
@@ -268,7 +207,7 @@ pub async fn activate_license_with_key(db: &std::sync::Arc<sqlx::SqlitePool>, ke
         || data.get("activated_at").and_then(|v| v.as_str()).is_some();
 
     if is_activated {
-        let encrypted = encrypt_value(key, &hw_raw).map_err(|e| anyhow::anyhow!(e))?;
+        let encrypted = hw_encrypt(key)?;
         queries::upsert_setting(db, "license_key", &encrypted).await?;
         Ok(true)
     } else {
@@ -290,15 +229,14 @@ pub async fn clear_license(state: State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn deactivate_license(state: State<'_, AppState>) -> Result<(), String> {
-    let hw_raw = hardware_id_raw();
-    let hw_id = hardware_id_formatted(&hw_raw);
+    let hw_id = hardware_id_formatted(&hw_id_raw());
 
     let stored = queries::get_setting(&state.db, "license_key")
         .await
         .map_err(|e| e.to_string())?;
 
     if let Some(s) = stored.filter(|k| !k.is_empty()) {
-        if let Some(key) = resolve_stored_key(&s, &hw_raw) {
+        if let Some(key) = resolve_stored_key(&s) {
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
                 .build()

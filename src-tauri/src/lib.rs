@@ -17,6 +17,7 @@ pub mod icons_gen;
 pub mod menu;
 pub mod notifications;
 pub mod vault;
+pub mod crypto_utils;
 
 use engine::scheduler::Scheduler;
 use engine::watcher::FileWatcher;

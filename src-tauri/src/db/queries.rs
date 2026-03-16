@@ -2,154 +2,17 @@ use sqlx::SqlitePool;
 use chrono::{DateTime, Utc};
 use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig};
 use crate::models::schedule::{Schedule, RetentionPolicy};
+use crate::crypto_utils::{hw_encrypt, hw_decrypt_json};
 use std::str::FromStr;
 
 fn encrypt_cloud_config(plaintext: &str) -> anyhow::Result<String> {
-    use sysinfo::System;
-    use sha2::{Sha256, Digest};
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-    use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm, Key};
-
-    let hw_raw = {
-        let mut sys = System::new();
-        sys.refresh_memory();
-        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
-        let total_memory = sys.total_memory();
-        let cpu_count = sys.cpus().len();
-        format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
-    };
-    let key_bytes: [u8; 32] = {
-        let mut hasher = Sha256::new();
-        hasher.update(hw_raw.as_bytes());
-        hasher.finalize().into()
-    };
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-    let ciphertext = cipher.encrypt(&nonce, plaintext.as_bytes())
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    let mut combined = nonce.to_vec();
-    combined.extend(ciphertext);
-    Ok(BASE64.encode(combined))
+    hw_encrypt(plaintext)
 }
 
-fn decrypt_cloud_config(enc: &str) -> Option<S3Config> {
-    use sysinfo::System;
-    use sha2::{Sha256, Digest};
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
-
-    let hw_raw = {
-        let mut sys = System::new();
-        sys.refresh_memory();
-        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
-        let total_memory = sys.total_memory();
-        let cpu_count = sys.cpus().len();
-        format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
-    };
-
-    let key_bytes: [u8; 32] = {
-        let mut hasher = Sha256::new();
-        hasher.update(hw_raw.as_bytes());
-        hasher.finalize().into()
-    };
-
-    let combined = BASE64.decode(enc).ok()?;
-    if combined.len() < 13 { return None; }
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(&combined[..12]);
-    let plaintext = cipher.decrypt(nonce, &combined[12..]).ok()?;
-    let json = String::from_utf8(plaintext).ok()?;
-    serde_json::from_str::<S3Config>(&json).ok()
-}
-
-fn decrypt_sftp_config(enc: &str) -> Option<SftpConfig> {
-    use sysinfo::System;
-    use sha2::{Sha256, Digest};
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
-
-    let hw_raw = {
-        let mut sys = System::new();
-        sys.refresh_memory();
-        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
-        let total_memory = sys.total_memory();
-        let cpu_count = sys.cpus().len();
-        format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
-    };
-    let key_bytes: [u8; 32] = {
-        let mut hasher = Sha256::new();
-        hasher.update(hw_raw.as_bytes());
-        hasher.finalize().into()
-    };
-    let combined = BASE64.decode(enc).ok()?;
-    if combined.len() < 13 { return None; }
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(&combined[..12]);
-    let plaintext = cipher.decrypt(nonce, &combined[12..]).ok()?;
-    let json = String::from_utf8(plaintext).ok()?;
-    serde_json::from_str::<SftpConfig>(&json).ok()
-}
-
-fn decrypt_oauth_config(enc: &str) -> Option<OAuthConfig> {
-    use sysinfo::System;
-    use sha2::{Sha256, Digest};
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
-
-    let hw_raw = {
-        let mut sys = System::new();
-        sys.refresh_memory();
-        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
-        let total_memory = sys.total_memory();
-        let cpu_count = sys.cpus().len();
-        format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
-    };
-    let key_bytes: [u8; 32] = {
-        let mut hasher = Sha256::new();
-        hasher.update(hw_raw.as_bytes());
-        hasher.finalize().into()
-    };
-    let combined = BASE64.decode(enc).ok()?;
-    if combined.len() < 13 { return None; }
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(&combined[..12]);
-    let plaintext = cipher.decrypt(nonce, &combined[12..]).ok()?;
-    let json = String::from_utf8(plaintext).ok()?;
-    serde_json::from_str::<OAuthConfig>(&json).ok()
-}
-
-fn decrypt_webdav_config(enc: &str) -> Option<WebDavConfig> {
-    use sysinfo::System;
-    use sha2::{Sha256, Digest};
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
-
-    let hw_raw = {
-        let mut sys = System::new();
-        sys.refresh_memory();
-        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
-        let total_memory = sys.total_memory();
-        let cpu_count = sys.cpus().len();
-        format!("shadowvault:{}:{}:{}", hostname, total_memory, cpu_count)
-    };
-    let key_bytes: [u8; 32] = {
-        let mut hasher = Sha256::new();
-        hasher.update(hw_raw.as_bytes());
-        hasher.finalize().into()
-    };
-    let combined = BASE64.decode(enc).ok()?;
-    if combined.len() < 13 { return None; }
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
-    let cipher = Aes256Gcm::new(key);
-    let nonce = Nonce::from_slice(&combined[..12]);
-    let plaintext = cipher.decrypt(nonce, &combined[12..]).ok()?;
-    let json = String::from_utf8(plaintext).ok()?;
-    serde_json::from_str::<WebDavConfig>(&json).ok()
-}
+fn decrypt_cloud_config(enc: &str) -> Option<S3Config>     { hw_decrypt_json(enc) }
+fn decrypt_sftp_config(enc: &str)  -> Option<SftpConfig>   { hw_decrypt_json(enc) }
+fn decrypt_oauth_config(enc: &str) -> Option<OAuthConfig>  { hw_decrypt_json(enc) }
+fn decrypt_webdav_config(enc: &str)-> Option<WebDavConfig> { hw_decrypt_json(enc) }
 
 fn parse_destination_type(s: &str) -> DestinationType {
     match s {

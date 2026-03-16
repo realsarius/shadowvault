@@ -20,8 +20,7 @@ import styles from "./LicensePage.module.css";
 const FREE_LIMIT = 3;
 const KEY_PATTERN = /^SV-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 
-// LemonSqueezy ürün sayfası — sonra gerçek URL ile değiştir
-const BUY_URL = "https://berkansozer.lemonsqueezy.com/buy/shadowvault-pro";
+import { BUY_URL } from "../constants";
 
 function formatKeyInput(raw: string): string {
   const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");

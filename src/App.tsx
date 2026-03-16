@@ -12,6 +12,7 @@ import { VaultPage } from "./pages/VaultPage";
 import { AboutModal } from "./components/ui/AboutModal";
 import { OnboardingModal } from "./components/ui/OnboardingModal";
 import { ErrorFallback } from "./components/ui/ErrorFallback";
+import { BUY_URL } from "./constants";
 import { store, setStore, initStore, initLicense } from "./store";
 import "./styles/globals.css";
 
@@ -69,12 +70,11 @@ export function App() {
 
       // Open buy URL from About section in native menu
       listen("menu-open-buy-url", async () => {
-        const url = "https://berkansozer.lemonsqueezy.com/buy/shadowvault-pro";
         try {
           const { open } = await import("@tauri-apps/plugin-shell");
-          await open(url);
+          await open(BUY_URL);
         } catch {
-          window.open(url, "_blank");
+          window.open(BUY_URL, "_blank");
         }
       }),
     ]);
