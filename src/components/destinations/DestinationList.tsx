@@ -111,9 +111,26 @@ export function DestinationList(props: Props) {
     catch { /* ignore */ }
   };
 
-  const handleOpenFolder = (path: string) => {
+  const cloudFolderUrl = (dest: Destination): string | null => {
+    const type = dest.destination_type;
+    const folderPath = dest.oauth_config?.folder_path ?? "";
+    if (type === "Dropbox") {
+      const p = folderPath.startsWith("/") ? folderPath.slice(1) : folderPath;
+      return `https://www.dropbox.com/home/${encodeURIComponent(p)}`;
+    }
+    if (type === "GoogleDrive") return "https://drive.google.com";
+    if (type === "OneDrive") return "https://onedrive.live.com";
+    return null;
+  };
+
+  const handleOpenFolder = (dest: Destination) => {
     setOpenMenuId(null);
-    api.fs.openPath(path).catch(() => {});
+    const url = cloudFolderUrl(dest);
+    if (url) {
+      api.fs.openPath(url).catch(() => {});
+    } else {
+      api.fs.openPath(dest.path).catch(() => {});
+    }
   };
 
   const handleDecryptOpen = (dest: Destination) => {
@@ -162,7 +179,7 @@ export function DestinationList(props: Props) {
           <button
             class={styles.openFolderBtn}
             title={t("open_src_folder")}
-            onClick={() => handleOpenFolder(props.source.path)}
+            onClick={() => { setOpenMenuId(null); api.fs.openPath(props.source.path).catch(() => {}); }}
           >
             <TbOutlineFolderOpen size={14} />
             <span>{t("open_src_folder")}</span>
@@ -258,7 +275,7 @@ export function DestinationList(props: Props) {
                             <TbOutlineEye size={14} />
                             {t("dest_preview")}
                           </button>
-                          <button class={styles.dropItem} onClick={() => handleOpenFolder(dest.path)}>
+                          <button class={styles.dropItem} onClick={() => handleOpenFolder(dest)}>
                             <TbOutlineFolderOpen size={14} />
                             {t("open_dest_folder")}
                           </button>

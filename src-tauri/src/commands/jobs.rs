@@ -242,6 +242,7 @@ pub async fn pause_all(state: State<'_, AppState>, app_handle: AppHandle) -> Res
     scheduler.cancel_all();
 
     crate::tray::set_tray_state(&app_handle, "paused");
+    let _ = app_handle.emit("scheduler-status", serde_json::json!({ "paused": true }));
     log::info!("All scheduled jobs paused");
     Ok(())
 }
@@ -266,6 +267,7 @@ pub async fn resume_all(
         .await;
 
     crate::tray::set_tray_state(&app_handle, "normal");
+    let _ = app_handle.emit("scheduler-status", serde_json::json!({ "paused": false }));
     log::info!("All scheduled jobs resumed");
     Ok(())
 }
