@@ -67,3 +67,21 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+
+.toolbar {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbarSelect {
+  flex: 1;
+  font-size: 11px;
+  padding: 3px 6px;
+  background: var(--bg-input, var(--bg-surface));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
