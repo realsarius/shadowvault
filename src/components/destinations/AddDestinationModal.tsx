@@ -58,7 +58,6 @@ export function AddDestinationModal(props: Props) {
 
   // OAuth fields
   const [oauthProvider, setOauthProvider] = createSignal<"onedrive" | "gdrive" | "dropbox">("onedrive");
-  const [oauthClientId, setOauthClientId] = createSignal("");
   const [oauthFolderPath, setOauthFolderPath] = createSignal("/ShadowVault");
   const [oauthConfig, setOauthConfig] = createSignal<OAuthConfig | null>(null);
   const [oauthStatus, setOauthStatus] = createSignal<"idle" | "waiting" | "done" | "error">("idle");
@@ -91,7 +90,7 @@ export function AddDestinationModal(props: Props) {
     setSftpHost(""); setSftpPort(22); setSftpUsername(""); setSftpAuthType("password");
     setSftpPassword(""); setSftpKeyPath(""); setSftpRemotePath("/");
     setWebdavUrl(""); setWebdavUsername(""); setWebdavPassword(""); setWebdavRootPath("/ShadowVault");
-    setOauthProvider("onedrive"); setOauthClientId(""); setOauthFolderPath("/ShadowVault");
+    setOauthProvider("onedrive"); setOauthFolderPath("/ShadowVault");
     setOauthConfig(null); setOauthStatus("idle"); setOauthError("");
     setSchedule({ type: "Interval", value: { minutes: 60 } });
     setMaxVersions(10); setNaming("Timestamp"); setExclusionsText(""); setIncremental(false);
@@ -500,13 +499,6 @@ export function AddDestinationModal(props: Props) {
         </div>
 
         <div class={styles.field}>
-          <label class={styles.label}>{t("oauth_client_id")}</label>
-          <input class={styles.input} type="text" placeholder={t("oauth_client_id_ph")}
-            value={oauthClientId()} onInput={e => setOauthClientId(e.currentTarget.value)} />
-          <div class={styles.hint}>{t("oauth_client_id_hint")}</div>
-        </div>
-
-        <div class={styles.field}>
           <label class={styles.label}>{t("oauth_folder_path")}</label>
           <input class={styles.input} type="text" placeholder="/ShadowVault/backups"
             value={oauthFolderPath()} onInput={e => setOauthFolderPath(e.currentTarget.value)} />
@@ -527,10 +519,9 @@ export function AddDestinationModal(props: Props) {
             <Button variant="ghost" size="sm"
               disabled={oauthStatus() === "waiting"}
               onClick={async () => {
-                if (!oauthClientId().trim()) { toast.error(t("oauth_client_id_required")); return; }
                 setOauthStatus("waiting"); setOauthError("");
                 try {
-                  const cfg = await api.oauth.runFlow(oauthProvider(), oauthClientId().trim(), oauthFolderPath().trim() || "/ShadowVault");
+                  const cfg = await api.oauth.runFlow(oauthProvider(), oauthFolderPath().trim() || "/ShadowVault");
                   setOauthConfig(cfg); setOauthStatus("done");
                   toast.success(t("oauth_connected_ok"));
                 } catch (e: any) {

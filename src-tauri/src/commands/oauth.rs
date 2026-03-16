@@ -11,8 +11,7 @@ use crate::engine::{oauth_token, oauth_copier};
 #[tauri::command]
 #[specta::specta]
 pub async fn run_oauth_flow(
-    provider:    String,   // "onedrive" | "gdrive"
-    client_id:   String,
+    provider:    String,   // "onedrive" | "gdrive" | "dropbox"
     folder_path: String,
 ) -> Result<OAuthConfig, String> {
     // Bind a random local port — keeps it open throughout the flow
@@ -24,7 +23,7 @@ pub async fn run_oauth_flow(
         .port();
 
     // Build PKCE session + auth URL
-    let session = oauth_token::build_pkce_session(&provider, &client_id, port)
+    let session = oauth_token::build_pkce_session(&provider, port)
         .map_err(|e| e.to_string())?;
 
     // Open system browser
@@ -38,11 +37,11 @@ pub async fn run_oauth_flow(
 
     // Exchange code for tokens
     let mut config = oauth_token::exchange_code(
-        &provider, &client_id, &code,
+        &provider, &code,
         &session.code_verifier, &session.redirect_uri,
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| { log::error!("OAuth exchange_code hatası: {}", e); e.to_string() })?;
 
     config.folder_path = if folder_path.is_empty() {
         "/ShadowVault".to_string()

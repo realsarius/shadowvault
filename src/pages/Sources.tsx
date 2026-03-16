@@ -68,6 +68,16 @@ export function Sources() {
     setShowEditSource(true);
   };
 
+  const handleDeleteSource = async (id: string) => {
+    try {
+      await api.sources.delete(id);
+      if (store.activeSourceId === id) setStore("activeSourceId", null);
+      await refreshSources();
+    } catch (e) {
+      console.error("delete source error", e);
+    }
+  };
+
   const handleAddSource = () => {
     const atLimit = store.sources.length >= FREE_LIMIT && store.licenseStatus !== "valid";
     if (atLimit) {
@@ -88,6 +98,7 @@ export function Sources() {
         onSelect={(id) => setStore("activeSourceId", id)}
         onAdd={handleAddSource}
         onEdit={handleEditSource}
+        onDelete={handleDeleteSource}
       />
 
       <Show when={activeSource()} fallback={

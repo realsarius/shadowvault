@@ -28,8 +28,8 @@ export const api = {
       invoke<void>("test_webdav_connection", { url, username, password, rootPath }),
   },
   oauth: {
-    runFlow: (provider: string, clientId: string, folderPath: string) =>
-      invoke<OAuthConfig>("run_oauth_flow", { provider, clientId, folderPath }),
+    runFlow: (provider: string, folderPath: string) =>
+      invoke<OAuthConfig>("run_oauth_flow", { provider, folderPath }),
     testConnection: (oauthConfig: OAuthConfig) =>
       invoke<void>("test_oauth_connection", { oauthConfig }),
   },

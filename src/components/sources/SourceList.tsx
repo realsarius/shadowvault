@@ -18,6 +18,7 @@ interface Props {
   onSelect: (id: string) => void;
   onAdd: () => void;
   onEdit?: (id: string) => void;
+  onDelete?: (id: string) => void;
 }
 
 function lastRunOf(s: Source): number {
@@ -102,6 +103,7 @@ export function SourceList(props: Props) {
                 active={props.activeId === source.id}
                 onClick={() => props.onSelect(source.id)}
                 onEdit={() => props.onEdit?.(source.id)}
+                onDelete={() => props.onDelete?.(source.id)}
               />
             </div>
           )}

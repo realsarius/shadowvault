@@ -88,6 +88,7 @@ const tr = {
   dest_last_run: "Son çalışma:",
   dest_next_run: "Sonraki:",
   dest_delete_confirm: "Bu hedefi silmek istediğinizden emin misiniz?",
+  src_delete_confirm: "Bu kaynağı silmek istediğinizden emin misiniz? İlişkili tüm hedefler de silinecektir.",
   dest_add: "+ Hedef Ekle",
 
   // Source placeholder
@@ -539,6 +540,7 @@ const en: Record<keyof typeof tr, string> = {
   dest_last_run: "Last run:",
   dest_next_run: "Next:",
   dest_delete_confirm: "Are you sure you want to delete this target?",
+  src_delete_confirm: "Are you sure you want to delete this source? All associated targets will also be deleted.",
   dest_add: "+ Add Target",
 
   // Source placeholder

@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import { TbOutlineFolder, TbOutlineFile, TbOutlineArchive, TbOutlineDotsVertical, TbOutlinePlayerPlay, TbOutlineEye, TbOutlinePencil, TbOutlineTrash, TbOutlineFolderOpen, TbOutlineLock, TbOutlineLockOpen } from "solid-icons/tb";
 import { toast } from "solid-sonner";
 import { Modal } from "../ui/Modal";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { Toggle } from "../ui/Toggle";
@@ -64,6 +65,7 @@ function statusLabel(status: JobStatus | null): string {
 
 export function DestinationList(props: Props) {
   const [deletingId, setDeletingId] = createSignal<string | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = createSignal<string | null>(null);
   const [runningId, setRunningId] = createSignal<string | null>(null);
   const [editingDest, setEditingDest] = createSignal<Destination | null>(null);
   const [previewDestId, setPreviewDestId] = createSignal<string | null>(null);
@@ -90,9 +92,15 @@ export function DestinationList(props: Props) {
     finally { setRunningId(null); props.onRefresh(); }
   };
 
-  const handleDelete = async (destId: string) => {
+  const handleDelete = (destId: string) => {
     setOpenMenuId(null);
-    if (!confirm(t("dest_delete_confirm"))) return;
+    setPendingDeleteId(destId);
+  };
+
+  const confirmDelete = async () => {
+    const destId = pendingDeleteId();
+    if (!destId) return;
+    setPendingDeleteId(null);
     setDeletingId(destId);
     try { await api.destinations.delete(destId); props.onRefresh(); }
     finally { setDeletingId(null); }
@@ -334,6 +342,13 @@ export function DestinationList(props: Props) {
           </div>
         </div>
       </Modal>
+
+      <ConfirmDialog
+        open={pendingDeleteId() !== null}
+        message={t("dest_delete_confirm")}
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

@@ -13,6 +13,25 @@ const DROPBOX_AUTH_URL:  &str = "https://www.dropbox.com/oauth2/authorize";
 const DROPBOX_TOKEN_URL: &str = "https://api.dropboxapi.com/oauth2/token";
 const DROPBOX_SCOPE:     &str = "";
 
+// Client IDs are baked in at compile time via build.rs (.env locally, GitHub Secrets in CI)
+const ONEDRIVE_CLIENT_ID:     &str = match option_env!("ONEDRIVE_CLIENT_ID")     { Some(v) => v, None => "" };
+const GDRIVE_CLIENT_ID:       &str = match option_env!("GDRIVE_CLIENT_ID")       { Some(v) => v, None => "" };
+const GDRIVE_CLIENT_SECRET:   &str = match option_env!("GDRIVE_CLIENT_SECRET")   { Some(v) => v, None => "" };
+const DROPBOX_CLIENT_ID:      &str = match option_env!("DROPBOX_CLIENT_ID")      { Some(v) => v, None => "" };
+
+pub fn client_id_for(provider: &str) -> anyhow::Result<&'static str> {
+    let id = match provider {
+        "onedrive" => ONEDRIVE_CLIENT_ID,
+        "gdrive"   => GDRIVE_CLIENT_ID,
+        "dropbox"  => DROPBOX_CLIENT_ID,
+        p => anyhow::bail!("Unknown OAuth provider: {}", p),
+    };
+    if id.is_empty() {
+        anyhow::bail!("{} için OAuth Client ID yapılandırılmamış", provider);
+    }
+    Ok(id)
+}
+
 pub struct PkceSession {
     pub code_verifier: String,
     pub redirect_uri:  String,
@@ -25,10 +44,10 @@ pub struct PkceSession {
 /// Generates a PKCE session for the given provider and binds a local TCP port.
 /// The returned port is already bound so no TOCTOU race exists.
 pub fn build_pkce_session(
-    provider:  &str,
-    client_id: &str,
-    port:      u16,
+    provider: &str,
+    port:     u16,
 ) -> anyhow::Result<PkceSession> {
+    let client_id = client_id_for(provider)?;
     use rand::Rng;
     use sha2::{Sha256, Digest};
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -179,11 +198,11 @@ fn percent_decode(s: &str) -> String {
 
 pub async fn exchange_code(
     provider:      &str,
-    client_id:     &str,
     code:          &str,
     code_verifier: &str,
     redirect_uri:  &str,
 ) -> anyhow::Result<OAuthConfig> {
+    let client_id = client_id_for(provider)?;
     let token_url = match provider {
         "onedrive" => ONEDRIVE_TOKEN_URL,
         "gdrive"   => GDRIVE_TOKEN_URL,
@@ -198,6 +217,10 @@ pub async fn exchange_code(
     params.insert("code",          code);
     params.insert("redirect_uri",  redirect_uri);
     params.insert("code_verifier", code_verifier);
+    // Google Desktop apps require client_secret in token exchange
+    if provider == "gdrive" && !GDRIVE_CLIENT_SECRET.is_empty() {
+        params.insert("client_secret", GDRIVE_CLIENT_SECRET);
+    }
 
     let resp = client.post(token_url).form(&params).send().await?;
     if !resp.status().is_success() {
@@ -230,6 +253,9 @@ pub async fn ensure_fresh_token(config: &OAuthConfig) -> anyhow::Result<OAuthCon
     params.insert("grant_type",    "refresh_token");
     params.insert("client_id",     config.client_id.as_str());
     params.insert("refresh_token", config.refresh_token.as_str());
+    if config.provider == "gdrive" && !GDRIVE_CLIENT_SECRET.is_empty() {
+        params.insert("client_secret", GDRIVE_CLIENT_SECRET);
+    }
 
     let resp = client.post(token_url).form(&params).send().await?;
     if !resp.status().is_success() {
