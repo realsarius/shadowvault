@@ -19,7 +19,7 @@ use crate::vault::{
 
 // ─── Yardımcı Tipler ────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct VaultSummary {
     pub id: String,
     pub name: String,
@@ -52,6 +52,7 @@ fn get_session(state: &State<'_, Arc<SessionStore>>) -> Arc<SessionStore> {
 // ─── Tauri Komutları ────────────────────────────────────────────────────────
 
 #[tauri::command]
+#[specta::specta]
 pub async fn create_vault(
     app: tauri::AppHandle,
     db_state: State<'_, AppState>,
@@ -132,6 +133,7 @@ pub async fn create_vault(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn list_vaults(
     db_state: State<'_, AppState>,
     session: State<'_, Arc<SessionStore>>,
@@ -159,6 +161,7 @@ pub async fn list_vaults(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn unlock_vault(
     app: tauri::AppHandle,
     db_state: State<'_, AppState>,
@@ -211,6 +214,7 @@ pub async fn unlock_vault(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn lock_vault(
     session: State<'_, Arc<SessionStore>>,
     vault_id: String,
@@ -221,6 +225,7 @@ pub async fn lock_vault(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn list_entries(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -246,6 +251,7 @@ pub async fn list_entries(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn import_file_cmd(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -275,6 +281,7 @@ pub async fn import_file_cmd(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn import_directory_cmd(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -304,6 +311,7 @@ pub async fn import_directory_cmd(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn export_file_cmd(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -330,6 +338,7 @@ pub async fn export_file_cmd(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn open_file_cmd(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -371,6 +380,7 @@ pub async fn open_file_cmd(
 
 /// Belirli bir kasa için dışarıda açık olan dosyaları listeler.
 #[tauri::command]
+#[specta::specta]
 pub async fn get_open_files(
     session: State<'_, Arc<SessionStore>>,
     vault_id: String,
@@ -393,6 +403,7 @@ pub async fn get_open_files(
 /// `save = true` → değişiklikleri re-encrypt et, sonra kilitle.
 /// `save = false` → değişiklikleri yok say, sadece kilitle (discard).
 #[tauri::command]
+#[specta::specta]
 pub async fn sync_and_lock_vault(
     session: State<'_, Arc<SessionStore>>,
     vault_id: String,
@@ -436,6 +447,7 @@ pub async fn sync_and_lock_vault(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn rename_entry_cmd(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -456,6 +468,7 @@ pub async fn rename_entry_cmd(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn move_entry_cmd(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -477,6 +490,7 @@ pub async fn move_entry_cmd(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_entry_cmd(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -496,6 +510,7 @@ pub async fn delete_entry_cmd(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn create_directory_cmd(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -518,6 +533,7 @@ pub async fn create_directory_cmd(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_thumbnail(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,
@@ -542,6 +558,7 @@ pub async fn get_thumbnail(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_vault(
     app: tauri::AppHandle,
     db_state: State<'_, AppState>,
@@ -579,6 +596,7 @@ pub async fn delete_vault(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn change_vault_password(
     app: tauri::AppHandle,
     session: State<'_, Arc<SessionStore>>,

@@ -11,13 +11,13 @@ use super::crypto::{
 
 // ─── Vault Metadata Tipleri ─────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub enum EntryKind {
     File,
     Directory,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct VaultEntry {
     pub id: String,
     pub name: String,

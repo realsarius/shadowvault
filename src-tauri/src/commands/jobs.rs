@@ -5,6 +5,7 @@ use crate::engine::copier::CopyJob;
 use crate::db::queries;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn run_now(
     destination_id: String,
     state: State<'_, AppState>,
@@ -111,6 +112,7 @@ pub async fn run_now(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn run_source_now(
     source_id: String,
     state: State<'_, AppState>,
@@ -208,6 +210,7 @@ pub async fn run_source_now(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn pause_all(state: State<'_, AppState>, app_handle: AppHandle) -> Result<(), String> {
     use std::sync::atomic::Ordering;
     state.paused.store(true, Ordering::SeqCst);
@@ -221,6 +224,7 @@ pub async fn pause_all(state: State<'_, AppState>, app_handle: AppHandle) -> Res
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn resume_all(
     state: State<'_, AppState>,
     app_handle: AppHandle,

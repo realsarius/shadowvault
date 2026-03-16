@@ -2,6 +2,7 @@ use crate::models::{S3Config, SftpConfig, WebDavConfig};
 use crate::engine::{cloud_copier, sftp_copier, webdav_copier};
 
 #[tauri::command]
+#[specta::specta]
 pub async fn test_cloud_connection(
     provider: String,
     bucket: String,
@@ -27,6 +28,7 @@ pub async fn test_cloud_connection(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn test_sftp_connection(
     host: String,
     port: u16,
@@ -55,6 +57,7 @@ pub async fn test_sftp_connection(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn test_webdav_connection(
     url: String,
     username: String,

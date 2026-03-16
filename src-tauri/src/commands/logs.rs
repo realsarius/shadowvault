@@ -5,6 +5,7 @@ use crate::models::LogEntry;
 use crate::db::queries;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_logs(
     state: State<'_, AppState>,
     source_id: Option<String>,
@@ -26,6 +27,7 @@ pub async fn get_logs(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_log_count(
     state: State<'_, AppState>,
     source_id: Option<String>,
@@ -36,6 +38,7 @@ pub async fn get_log_count(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn clear_old_logs(
     state: State<'_, AppState>,
     older_than_days: u32,

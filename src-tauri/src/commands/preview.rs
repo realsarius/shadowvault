@@ -8,7 +8,7 @@ use crate::models::SourceType;
 
 const MAX_LISTED_FILES: usize = 200;
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct PreviewFile {
     pub rel_path: String,
     pub size_bytes: u64,
@@ -16,7 +16,7 @@ pub struct PreviewFile {
     pub will_copy: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct BackupPreview {
     pub files: Vec<PreviewFile>,  // capped at MAX_LISTED_FILES
     pub copy_count: usize,
@@ -31,6 +31,7 @@ pub struct BackupPreview {
 /// Dry-runs the copy logic and returns the list of files that would be copied.
 /// Respects exclusion rules and incremental mode — does not write anything to disk.
 #[tauri::command]
+#[specta::specta]
 pub async fn preview_backup(
     destination_id: String,
     state: State<'_, AppState>,

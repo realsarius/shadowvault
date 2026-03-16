@@ -7,6 +7,7 @@ use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
 /// Reads the manifest in that folder to get the Argon2id salt, then decrypts each file.
 /// `password` is the plaintext encryption password set by the user.
 #[tauri::command]
+#[specta::specta]
 pub async fn decrypt_backup(
     _state: State<'_, AppState>,
     folder_path: String,

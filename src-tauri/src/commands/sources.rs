@@ -47,6 +47,7 @@ fn encrypt_password_for_storage(password: &str) -> anyhow::Result<(String, Strin
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_sources(state: State<'_, AppState>) -> Result<Vec<Source>, String> {
     queries::get_all_sources(&state.db)
         .await
@@ -54,6 +55,7 @@ pub async fn get_sources(state: State<'_, AppState>) -> Result<Vec<Source>, Stri
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn create_source(
     state: State<'_, AppState>,
     name: String,
@@ -80,6 +82,7 @@ pub async fn create_source(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn update_source(
     state: State<'_, AppState>,
     app_handle: AppHandle,
@@ -103,6 +106,7 @@ pub async fn update_source(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_source(
     state: State<'_, AppState>,
     app_handle: AppHandle,
@@ -372,6 +376,7 @@ pub async fn update_destination(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn delete_destination(
     state: State<'_, AppState>,
     app_handle: AppHandle,

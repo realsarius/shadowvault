@@ -9,6 +9,7 @@ use crate::engine::{oauth_token, oauth_copier};
 /// 5. Exchanges the code for tokens
 /// Returns the resulting OAuthConfig (without folder_path — set via separate field).
 #[tauri::command]
+#[specta::specta]
 pub async fn run_oauth_flow(
     provider:    String,   // "onedrive" | "gdrive"
     client_id:   String,
@@ -55,6 +56,7 @@ pub async fn run_oauth_flow(
 /// Tests that the stored OAuth config can reach the remote drive.
 /// Refreshes the token silently if needed.
 #[tauri::command]
+#[specta::specta]
 pub async fn test_oauth_connection(
     oauth_config: serde_json::Value,
 ) -> Result<(), String> {

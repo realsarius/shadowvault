@@ -10,6 +10,7 @@ use crate::db::queries;
 
 /// Reads a single setting value by key. Returns null if not set.
 #[tauri::command]
+#[specta::specta]
 pub async fn get_setting_value(
     state: State<'_, AppState>,
     key: String,
@@ -21,6 +22,7 @@ pub async fn get_setting_value(
 
 /// Writes a single setting key/value pair.
 #[tauri::command]
+#[specta::specta]
 pub async fn set_setting_value(
     state: State<'_, AppState>,
     key: String,
@@ -31,7 +33,7 @@ pub async fn set_setting_value(
         .map_err(|e| e.to_string())
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 pub struct AppSettings {
     pub run_on_startup: bool,
     pub minimize_to_tray: bool,
@@ -41,6 +43,7 @@ pub struct AppSettings {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, String> {
     let run_on_startup = queries::get_setting(&state.db, "run_on_startup")
         .await
@@ -78,6 +81,7 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, Str
 
 /// Returns the current schema version recorded in the `schema_versions` table.
 #[tauri::command]
+#[specta::specta]
 pub async fn get_schema_version(state: State<'_, AppState>) -> Result<i64, String> {
     queries::get_schema_version(&state.db)
         .await
@@ -85,6 +89,7 @@ pub async fn get_schema_version(state: State<'_, AppState>) -> Result<i64, Strin
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn update_settings(
     state: State<'_, AppState>,
     app_handle: AppHandle,

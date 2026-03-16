@@ -4,6 +4,7 @@ use crate::db::queries;
 
 /// Sends a test email to verify the Resend email notification setup.
 #[tauri::command]
+#[specta::specta]
 pub async fn send_test_email(
     state: State<'_, AppState>,
     to: String,

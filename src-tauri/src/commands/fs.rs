@@ -3,6 +3,7 @@ use tauri::AppHandle;
 use tauri_plugin_dialog::DialogExt;
 
 #[tauri::command]
+#[specta::specta]
 pub async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
     let path = app.dialog().file().blocking_pick_folder();
 
@@ -20,6 +21,7 @@ pub async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn pick_file(app: AppHandle) -> Result<Option<String>, String> {
     let path = app.dialog().file().blocking_pick_file();
 
@@ -36,7 +38,7 @@ pub async fn pick_file(app: AppHandle) -> Result<Option<String>, String> {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct DiskInfo {
     pub total_bytes: u64,
     pub available_bytes: u64,
@@ -44,6 +46,7 @@ pub struct DiskInfo {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn check_path_type(path: String) -> Result<String, String> {
     let p = std::path::Path::new(&path);
     if p.is_dir() { Ok("Directory".to_string()) }
@@ -52,11 +55,13 @@ pub async fn check_path_type(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn open_path(path: String) -> Result<(), String> {
     open::that(&path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn get_disk_info(path: String) -> Result<DiskInfo, String> {
     use sysinfo::Disks;
 

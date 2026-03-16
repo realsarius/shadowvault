@@ -14,6 +14,19 @@ use crate::db::queries;
 
 const LICENSE_API: &str = "https://license.berkansozer.com";
 
+#[derive(Debug, Serialize, specta::Type)]
+pub struct ActivateResult {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, specta::Type)]
+pub struct ValidateResult {
+    pub status: String,
+    pub offline: Option<bool>,
+    pub cached: Option<bool>,
+}
+
 #[derive(Serialize)]
 struct LicenseApiRequest {
     key: String,
@@ -91,6 +104,7 @@ fn resolve_stored_key(stored: &str, hw_raw: &str) -> Option<String> {
 
 /// Returns the machine's unique hardware ID (for display).
 #[tauri::command]
+#[specta::specta]
 pub async fn get_hardware_id() -> Result<String, String> {
     let raw = hardware_id_raw();
     Ok(hardware_id_formatted(&raw))
@@ -99,10 +113,11 @@ pub async fn get_hardware_id() -> Result<String, String> {
 /// Activates a license key via the backend API.
 /// On success the key is encrypted with AES-256-GCM and stored in SQLite.
 #[tauri::command]
+#[specta::specta]
 pub async fn activate_license(
     state: State<'_, AppState>,
     key: String,
-) -> Result<serde_json::Value, String> {
+) -> Result<ActivateResult, String> {
     let hw_raw = hardware_id_raw();
     let hw_id = hardware_id_formatted(&hw_raw);
 
@@ -128,14 +143,14 @@ pub async fn activate_license(
         queries::upsert_setting(&state.db, "license_key", &encrypted)
             .await
             .map_err(|e| e.to_string())?;
-        Ok(serde_json::json!({ "success": true }))
+        Ok(ActivateResult { success: true, error: None })
     } else {
         let msg = data
             .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or("Geçersiz lisans anahtarı.")
             .to_string();
-        Ok(serde_json::json!({ "success": false, "error": msg }))
+        Ok(ActivateResult { success: false, error: Some(msg) })
     }
 }
 
@@ -143,7 +158,8 @@ pub async fn activate_license(
 /// Falls back to "valid" (offline grace) when the network is unreachable.
 /// Rate-limited: skips the API call if validated within the last 60 seconds.
 #[tauri::command]
-pub async fn validate_license(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+#[specta::specta]
+pub async fn validate_license(state: State<'_, AppState>) -> Result<ValidateResult, String> {
     let hw_raw = hardware_id_raw();
     let hw_id = hardware_id_formatted(&hw_raw);
 
@@ -152,12 +168,12 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<serde_json::
         .map_err(|e| e.to_string())?
     {
         Some(k) if !k.is_empty() => k,
-        _ => return Ok(serde_json::json!({ "status": "invalid" })),
+        _ => return Ok(ValidateResult { status: "invalid".to_string(), offline: None, cached: None }),
     };
 
     let key = match resolve_stored_key(&stored, &hw_raw) {
         Some(k) => k,
-        None => return Ok(serde_json::json!({ "status": "invalid" })),
+        None => return Ok(ValidateResult { status: "invalid".to_string(), offline: None, cached: None }),
     };
 
     // Rate limit: if last validation was < 60s ago, return cached "valid"
@@ -165,7 +181,7 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<serde_json::
         if let Ok(ts) = ts_str.parse::<i64>() {
             let elapsed = chrono::Utc::now().timestamp() - ts;
             if elapsed < 60 {
-                return Ok(serde_json::json!({ "status": "valid", "cached": true }));
+                return Ok(ValidateResult { status: "valid".to_string(), offline: None, cached: Some(true) });
             }
         }
     }
@@ -185,24 +201,24 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<serde_json::
             let data: serde_json::Value = response.json().await.unwrap_or_default();
             let valid = data.get("valid").and_then(|v| v.as_bool()).unwrap_or(false);
             if valid {
-                // Cache the timestamp
                 let _ = queries::upsert_setting(
                     &state.db,
                     "license_validated_at",
                     &chrono::Utc::now().timestamp().to_string(),
                 ).await;
             }
-            Ok(serde_json::json!({ "status": if valid { "valid" } else { "invalid" } }))
+            let status = if valid { "valid" } else { "invalid" }.to_string();
+            Ok(ValidateResult { status, offline: None, cached: None })
         }
         Err(_) => {
-            // Offline: grant access if a key is stored
-            Ok(serde_json::json!({ "status": "valid", "offline": true }))
+            Ok(ValidateResult { status: "valid".to_string(), offline: Some(true), cached: None })
         }
     }
 }
 
 /// Returns the decrypted stored key (for display / compatibility).
 #[tauri::command]
+#[specta::specta]
 pub async fn get_stored_license(state: State<'_, AppState>) -> Result<Option<String>, String> {
     let hw_raw = hardware_id_raw();
     let stored = queries::get_setting(&state.db, "license_key")
@@ -220,6 +236,7 @@ pub async fn get_stored_license(state: State<'_, AppState>) -> Result<Option<Str
 
 /// Stores a license key encrypted. Kept for backward compatibility.
 #[tauri::command]
+#[specta::specta]
 pub async fn store_license(state: State<'_, AppState>, key: String) -> Result<(), String> {
     let hw_raw = hardware_id_raw();
     let encrypted = encrypt_value(&key, &hw_raw)?;
@@ -261,6 +278,7 @@ pub async fn activate_license_with_key(db: &std::sync::Arc<sqlx::SqlitePool>, ke
 
 /// Clears the stored license key (local only, no server call).
 #[tauri::command]
+#[specta::specta]
 pub async fn clear_license(state: State<'_, AppState>) -> Result<(), String> {
     queries::upsert_setting(&state.db, "license_key", "")
         .await
@@ -270,6 +288,7 @@ pub async fn clear_license(state: State<'_, AppState>) -> Result<(), String> {
 /// Deactivates the license on the server and clears it locally.
 /// Allows the user to activate on a different device afterwards.
 #[tauri::command]
+#[specta::specta]
 pub async fn deactivate_license(state: State<'_, AppState>) -> Result<(), String> {
     let hw_raw = hardware_id_raw();
     let hw_id = hardware_id_formatted(&hw_raw);

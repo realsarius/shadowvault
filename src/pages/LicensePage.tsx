@@ -7,6 +7,8 @@ import {
   TbOutlineExternalLink,
   TbOutlineKey,
   TbOutlineDeviceDesktopOff,
+  TbOutlineEye,
+  TbOutlineEyeOff,
 } from "solid-icons/tb";
 import { listen } from "@tauri-apps/api/event";
 import { toast } from "solid-sonner";
@@ -32,6 +34,7 @@ function formatKeyInput(raw: string): string {
 
 export function LicensePage() {
   const [key, setKey] = createSignal("");
+  const [showKey, setShowKey] = createSignal(false);
   const [hardwareId, setHardwareId] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
   const [deactivating, setDeactivating] = createSignal(false);
@@ -225,17 +228,28 @@ export function LicensePage() {
 
               <div class={styles.field}>
                 <label class={styles.fieldLabel}>{t("lic_key_label")}</label>
-                <input
-                  class={styles.keyInput}
-                  type="text"
-                  placeholder="SV-XXXX-XXXX-XXXX-XXXX"
-                  value={key()}
-                  onInput={handleInput}
-                  maxLength={22}
-                  spellcheck={false}
-                  autocomplete="off"
-                  onKeyDown={(e) => e.key === "Enter" && !loading() && handleActivate()}
-                />
+                <div class={styles.keyInputWrapper}>
+                  <input
+                    class={styles.keyInput}
+                    type={showKey() ? "text" : "password"}
+                    placeholder="SV-XXXX-XXXX-XXXX-XXXX"
+                    value={key()}
+                    onInput={handleInput}
+                    maxLength={22}
+                    spellcheck={false}
+                    autocomplete="off"
+                    onKeyDown={(e) => e.key === "Enter" && !loading() && handleActivate()}
+                  />
+                  <button
+                    class={styles.eyeBtn}
+                    type="button"
+                    tabIndex={-1}
+                    title={showKey() ? t("lic_key_hide") : t("lic_key_show")}
+                    onClick={() => setShowKey(v => !v)}
+                  >
+                    {showKey() ? <TbOutlineEyeOff size={15} /> : <TbOutlineEye size={15} />}
+                  </button>
+                </div>
               </div>
 
               <button

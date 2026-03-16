@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "type", content = "value")]
 pub enum Schedule {
     Interval { minutes: u32 },
@@ -9,7 +9,7 @@ pub enum Schedule {
     Manual,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct RetentionPolicy {
     pub max_versions: u32,
     pub naming: VersionNaming,
@@ -24,7 +24,7 @@ impl Default for RetentionPolicy {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub enum VersionNaming {
     Timestamp,
     Index,

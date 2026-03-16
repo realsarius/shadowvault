@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use crate::models::schedule::{Schedule, RetentionPolicy};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub enum DestinationType {
     Local,
     S3,
@@ -24,7 +24,7 @@ fn default_destination_type() -> DestinationType {
     DestinationType::Local
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct S3Config {
     pub provider: String,
     pub bucket: String,
@@ -35,7 +35,7 @@ pub struct S3Config {
     pub prefix: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct OAuthConfig {
     pub provider: String,        // "onedrive" | "gdrive"
     pub client_id: String,
@@ -45,7 +45,7 @@ pub struct OAuthConfig {
     pub folder_path: String,     // Root folder on the remote drive
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct SftpConfig {
     pub host: String,
     pub port: u16,
@@ -56,7 +56,7 @@ pub struct SftpConfig {
     pub remote_path: String,        // base directory on server
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct WebDavConfig {
     pub url: String,           // e.g. https://nextcloud.example.com/remote.php/dav/files/user
     pub username: String,
@@ -64,7 +64,7 @@ pub struct WebDavConfig {
     pub root_path: String,     // sub-path within the WebDAV root
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct Source {
     pub id: String,
     pub name: String,
@@ -75,7 +75,7 @@ pub struct Source {
     pub destinations: Vec<Destination>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::Type)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, sqlx::Type, specta::Type)]
 #[sqlx(type_name = "TEXT")]
 pub enum SourceType {
     File,
@@ -102,7 +102,7 @@ impl std::str::FromStr for SourceType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct Destination {
     pub id: String,
     pub source_id: String,
@@ -140,7 +140,7 @@ pub struct Destination {
     pub encrypt_salt: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub enum JobStatus {
     Running,
     Success,

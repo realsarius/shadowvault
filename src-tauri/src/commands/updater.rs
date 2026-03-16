@@ -4,7 +4,7 @@ use tauri_plugin_updater::UpdaterExt;
 
 use crate::AppState;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, specta::Type)]
 pub struct UpdateInfo {
     pub available: bool,
     pub version: Option<String>,
@@ -12,6 +12,7 @@ pub struct UpdateInfo {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn check_update(app_handle: AppHandle) -> Result<UpdateInfo, String> {
     let updater = app_handle.updater().map_err(|e| e.to_string())?;
 
@@ -30,6 +31,7 @@ pub async fn check_update(app_handle: AppHandle) -> Result<UpdateInfo, String> {
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn install_update(app_handle: AppHandle, _state: State<'_, AppState>) -> Result<(), String> {
     let updater = app_handle.updater().map_err(|e| e.to_string())?;
 

@@ -54,6 +54,7 @@ const SAFE_SETTINGS: &[&str] = &[
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
+#[specta::specta]
 pub async fn export_config(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
@@ -124,6 +125,7 @@ pub async fn export_config(
 }
 
 #[tauri::command]
+#[specta::specta]
 pub async fn import_config(
     state: State<'_, AppState>,
     app: tauri::AppHandle,
@@ -156,7 +158,7 @@ pub async fn import_config(
     apply_import(&state.db, export).await.map_err(|e| e.to_string())
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, specta::Type)]
 pub struct ImportResult {
     pub sources_imported: usize,
     pub destinations_imported: usize,

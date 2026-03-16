@@ -3,6 +3,7 @@
 /// `backup_path`  — path to the versioned backup directory/file (from copy_logs.destination_path)
 /// `restore_to`   — target path to restore into (typically the original source_path)
 #[tauri::command]
+#[specta::specta]
 pub async fn restore_backup(
     backup_path: String,
     restore_to: String,

@@ -24,7 +24,7 @@ pub struct VaultSession {
 }
 
 /// Frontend için serialize edilebilir özet.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct OpenFileSummary {
     pub entry_id: String,
     pub file_name: String,
