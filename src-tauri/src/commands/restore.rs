@@ -2,6 +2,16 @@
 ///
 /// `backup_path`  — path to the versioned backup directory/file (from copy_logs.destination_path)
 /// `restore_to`   — target path to restore into (typically the original source_path)
+
+#[cfg(unix)]
+const BLOCKED_RESTORE_PREFIXES: &[&str] = &[
+    "/System", "/usr", "/bin", "/sbin", "/proc", "/sys", "/dev", "/boot",
+];
+#[cfg(windows)]
+const BLOCKED_RESTORE_PREFIXES: &[&str] = &[
+    "C:\\Windows", "C:\\Program Files", "C:\\System Volume Information",
+];
+
 #[tauri::command]
 #[specta::specta]
 pub async fn restore_backup(
@@ -13,6 +23,15 @@ pub async fn restore_backup(
 
     if !src.exists() {
         return Err(format!("Yedek bulunamadı: {}", backup_path));
+    }
+
+    for prefix in BLOCKED_RESTORE_PREFIXES {
+        if restore_to.starts_with(prefix) {
+            return Err(format!(
+                "Güvenlik ihlali: '{}' sistem dizinine geri yükleme yapılamaz.",
+                restore_to
+            ));
+        }
     }
 
     // Create destination parent directories

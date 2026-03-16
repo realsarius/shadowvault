@@ -5,6 +5,29 @@ use chrono::Utc;
 use std::str::FromStr;
 use sqlx::Row;
 
+const MAX_NAME_LEN: usize = 255;
+const MAX_PATH_LEN: usize = 4096;
+
+fn validate_name(name: &str) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("İsim boş olamaz.".to_string());
+    }
+    if name.len() > MAX_NAME_LEN {
+        return Err(format!("İsim en fazla {} karakter olabilir.", MAX_NAME_LEN));
+    }
+    Ok(())
+}
+
+fn validate_path(path: &str) -> Result<(), String> {
+    if path.trim().is_empty() {
+        return Err("Yol boş olamaz.".to_string());
+    }
+    if path.len() > MAX_PATH_LEN {
+        return Err(format!("Yol en fazla {} karakter olabilir.", MAX_PATH_LEN));
+    }
+    Ok(())
+}
+
 use crate::AppState;
 use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig};
 use crate::models::schedule::{Schedule, RetentionPolicy};
@@ -38,6 +61,8 @@ pub async fn create_source(
     path: String,
     source_type: String,
 ) -> Result<Source, String> {
+    validate_name(&name)?;
+    validate_path(&path)?;
     let st = SourceType::from_str(&source_type).map_err(|e| e.to_string())?;
 
     let source = Source {
@@ -68,6 +93,8 @@ pub async fn update_source(
     source_type: String,
     enabled: bool,
 ) -> Result<(), String> {
+    validate_name(&name)?;
+    validate_path(&path)?;
     queries::update_source(&state.db, &id, &name, &path, &source_type, enabled)
         .await
         .map_err(|e| e.to_string())?;
@@ -128,6 +155,7 @@ pub async fn add_destination(
     encrypt: Option<bool>,
     encrypt_password: Option<String>,
 ) -> Result<Destination, String> {
+    validate_path(&path)?;
     let schedule: Schedule = serde_json::from_value(schedule).map_err(|e| e.to_string())?;
     let retention: RetentionPolicy =
         serde_json::from_value(retention).map_err(|e| e.to_string())?;
@@ -224,6 +252,7 @@ pub async fn update_destination(
     encrypt: Option<bool>,
     encrypt_password: Option<String>,
 ) -> Result<(), String> {
+    validate_path(&path)?;
     // Fetch existing row to preserve source_id and run metadata
     let dest_row = sqlx::query(
         "SELECT id, source_id, last_run, last_status, next_run, exclusions_json, incremental, encrypt, encrypt_password_enc, encrypt_salt FROM destinations WHERE id = ?",

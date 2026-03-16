@@ -1,8 +1,11 @@
 use tauri::{State, AppHandle, Emitter};
+use std::time::{Duration, Instant};
 
 use crate::AppState;
 use crate::engine::copier::CopyJob;
 use crate::db::queries;
+
+const RUN_NOW_COOLDOWN_SECS: u64 = 5;
 
 #[tauri::command]
 #[specta::specta]
@@ -15,6 +18,17 @@ pub async fn run_now(
     if state.running_jobs.contains_key(&destination_id) {
         return Err(format!("Destination {} is already running", destination_id));
     }
+
+    // Rate limit: 5 second cooldown per destination
+    if let Some(last) = state.last_manual_run.get(&destination_id) {
+        if last.elapsed() < Duration::from_secs(RUN_NOW_COOLDOWN_SECS) {
+            return Err(format!(
+                "Lütfen {} saniye bekleyin.",
+                RUN_NOW_COOLDOWN_SECS - last.elapsed().as_secs()
+            ));
+        }
+    }
+    state.last_manual_run.insert(destination_id.clone(), Instant::now());
 
     // Look up destination and source
     let dest_row = sqlx::query(
@@ -139,6 +153,15 @@ pub async fn run_source_now(
             log::info!("Destination {} is already running, skipping run_source_now", dest_id);
             continue;
         }
+
+        // Rate limit: 5 second cooldown per destination
+        if let Some(last) = state.last_manual_run.get(&dest_id) {
+            if last.elapsed() < Duration::from_secs(RUN_NOW_COOLDOWN_SECS) {
+                log::info!("Destination {} rate limited, skipping run_source_now", dest_id);
+                continue;
+            }
+        }
+        state.last_manual_run.insert(dest_id.clone(), Instant::now());
 
         let db = state.db.clone();
         let running_jobs = state.running_jobs.clone();

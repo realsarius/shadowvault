@@ -756,19 +756,6 @@ sqlite3 ~/Library/Application\ Support/com.shadowvault.app/shadowvault.db \
   "SELECT started_at, status, error_message FROM copy_logs ORDER BY started_at DESC LIMIT 10;"
 ```
 
-### 10.6 Deployment Checklist
-
-```
-[ ] Kod imzalama sertifikası yapılandırıldı
-[ ] tauri.conf.json sürümü güncellendi
-[ ] latest.json güncelleme endpoint'i erişilebilir
-[ ] License API sağlık kontrolü geçiyor
-[ ] cargo test tüm testler geçiyor
-[ ] npm run build hatasız tamamlanıyor
-[ ] npm run tauri build çıktı dosyası doğru boyutta
-[ ] Deep link protokolü (shadowvault://) işletim sistemine kayıtlı
-```
-
 ---
 
 ## 11. Lisans ve Kullanım Notu

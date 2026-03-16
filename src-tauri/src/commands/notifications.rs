@@ -9,6 +9,9 @@ pub async fn send_test_email(
     state: State<'_, AppState>,
     to: String,
 ) -> Result<(), String> {
+    if !crate::notifications::is_valid_email(&to) {
+        return Err(format!("Geçersiz e-posta adresi: '{}'", to.trim()));
+    }
     // Save the address while we're at it
     queries::upsert_setting(&state.db, "notification_email", to.trim())
         .await

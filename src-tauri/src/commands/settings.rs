@@ -28,6 +28,11 @@ pub async fn set_setting_value(
     key: String,
     value: String,
 ) -> Result<(), String> {
+    if key == "notification_email" && !value.trim().is_empty() {
+        if !crate::notifications::is_valid_email(&value) {
+            return Err(format!("Geçersiz e-posta adresi: '{}'", value.trim()));
+        }
+    }
     queries::upsert_setting(&state.db, &key, &value)
         .await
         .map_err(|e| e.to_string())

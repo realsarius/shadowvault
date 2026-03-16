@@ -1,6 +1,20 @@
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 
+/// Minimal email format check: non-empty local part, single '@', domain with a dot.
+pub(crate) fn is_valid_email(email: &str) -> bool {
+    let t = email.trim();
+    if t.is_empty() { return false; }
+    let mut parts = t.splitn(2, '@');
+    let local = parts.next().unwrap_or("");
+    let domain = parts.next().unwrap_or("");
+    !local.is_empty()
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && domain.len() > 2
+}
+
 const RESEND_API_KEY: &str = match option_env!("SHADOWVAULT_RESEND_API_KEY") {
     Some(key) => key,
     None => "",

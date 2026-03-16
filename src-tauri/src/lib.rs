@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
 use tokio::sync::Mutex;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
@@ -29,6 +30,7 @@ pub struct AppState {
     pub running_jobs: Arc<DashMap<String, tokio::task::AbortHandle>>,
     pub paused: Arc<AtomicBool>,
     pub minimize_to_tray: Arc<AtomicBool>,
+    pub last_manual_run: Arc<DashMap<String, Instant>>,
 }
 
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
@@ -211,7 +213,8 @@ pub fn run() {
                     w.start(pool.clone(), running_jobs.clone(), app_handle.clone()).await;
                 }
 
-                app_handle.manage(AppState { db: pool, scheduler, watcher, running_jobs, paused, minimize_to_tray });
+                let last_manual_run: Arc<DashMap<String, Instant>> = Arc::new(DashMap::new());
+                app_handle.manage(AppState { db: pool, scheduler, watcher, running_jobs, paused, minimize_to_tray, last_manual_run });
                 app_handle.manage(Arc::new(SessionStore::new()));
             });
 
