@@ -185,6 +185,7 @@ pub fn run() {
             commands::settings::update_settings,
             commands::settings::get_setting_value,
             commands::settings::set_setting_value,
+            commands::settings::get_schema_version,
             commands::fs::pick_directory,
             commands::fs::pick_file,
             commands::fs::get_disk_info,

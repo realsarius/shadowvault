@@ -76,6 +76,14 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, Str
     })
 }
 
+/// Returns the current schema version recorded in the `schema_versions` table.
+#[tauri::command]
+pub async fn get_schema_version(state: State<'_, AppState>) -> Result<i64, String> {
+    queries::get_schema_version(&state.db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn update_settings(
     state: State<'_, AppState>,

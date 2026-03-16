@@ -136,6 +136,7 @@ export interface CopyProgress {
   files_done: number;
   files_total: number;
   bytes_done: number;
+  bytes_total: number;
 }
 
 // ─── Vault ──────────────────────────────────────────────────────────────────

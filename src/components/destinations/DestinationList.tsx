@@ -21,6 +21,13 @@ interface Props {
   onRefresh: () => void;
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 function scheduleLabel(dest: Destination): string {
   const s = dest.schedule;
   if (s.type === "Interval") return `${t("dest_schedule_label").replace(":", "")} ${s.value.minutes}dk`;
@@ -173,17 +180,26 @@ export function DestinationList(props: Props) {
               <div class={styles.card}>
                 <Show when={store.copyProgress[dest.id]}>
                   {(progress) => {
-                    const pct = () => progress().files_total > 0
-                      ? Math.round((progress().files_done / progress().files_total) * 100)
-                      : 0;
+                    const isBytes = () => progress().files_total <= 1 && progress().bytes_total > 0;
+                    const pct = () => {
+                      if (isBytes()) {
+                        return progress().bytes_total > 0
+                          ? Math.min(100, Math.round((progress().bytes_done / progress().bytes_total) * 100))
+                          : 0;
+                      }
+                      return progress().files_total > 0
+                        ? Math.round((progress().files_done / progress().files_total) * 100)
+                        : 0;
+                    };
+                    const label = () => isBytes()
+                      ? `${formatBytes(progress().bytes_done)} / ${formatBytes(progress().bytes_total)}`
+                      : `${progress().files_done}/${progress().files_total} dosya`;
                     return (
                       <>
                         <div class={styles.progressBar}>
                           <div class={styles.progressFill} style={{ width: `${pct()}%` }} />
                         </div>
-                        <div class={styles.progressText}>
-                          {progress().files_done}/{progress().files_total} dosya
-                        </div>
+                        <div class={styles.progressText}>{label()}</div>
                       </>
                     );
                   }}

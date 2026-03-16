@@ -899,6 +899,14 @@ pub async fn upsert_setting(pool: &SqlitePool, key: &str, value: &str) -> anyhow
     Ok(())
 }
 
+pub async fn get_schema_version(pool: &SqlitePool) -> anyhow::Result<i64> {
+    let row = sqlx::query("SELECT COALESCE(MAX(version), 0) AS v FROM schema_versions")
+        .fetch_one(pool)
+        .await?;
+    use sqlx::Row;
+    Ok(row.try_get::<i64, _>("v").unwrap_or(0))
+}
+
 pub async fn get_onchange_destinations(
     pool: &SqlitePool,
 ) -> anyhow::Result<Vec<(Source, Destination)>> {

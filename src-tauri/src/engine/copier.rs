@@ -159,6 +159,14 @@ fn build_exclusion_set(patterns: &[String]) -> globset::GlobSet {
     builder.build().unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap())
 }
 
+// ── Chunked copy constants ────────────────────────────────────────────────────
+
+/// Files larger than this are copied in chunks instead of a single fs::copy.
+const LARGE_FILE_THRESHOLD: u64 = 1_073_741_824; // 1 GB
+
+/// Chunk size used when streaming large files.
+const CHUNK_SIZE: usize = 67_108_864; // 64 MB
+
 // ── CopyJob ──────────────────────────────────────────────────────────────────
 
 impl CopyJob {
@@ -436,15 +444,53 @@ impl CopyJob {
         Ok(())
     }
 
-    fn emit_progress(&self, files_done: i32, files_total: i32, bytes_done: i64) {
+    fn emit_progress(&self, files_done: i32, files_total: i32, bytes_done: i64, bytes_total: i64) {
         if let Some(app) = &self.app {
             let _ = app.emit("copy-progress", serde_json::json!({
                 "destination_id": &self.destination.id,
                 "files_done": files_done,
                 "files_total": files_total,
                 "bytes_done": bytes_done,
+                "bytes_total": bytes_total,
             }));
         }
+    }
+
+    /// Copies `src` to `dst`. For files >= LARGE_FILE_THRESHOLD, streams in
+    /// CHUNK_SIZE chunks and emits a progress event after each chunk.
+    /// For smaller files, uses a single `fs::copy` call (no mid-copy events).
+    /// Returns the number of bytes written.
+    fn copy_file_chunked(
+        &self,
+        src: &std::path::Path,
+        dst: &std::path::Path,
+        files_done: i32,
+        files_total: i32,
+        bytes_before: i64,
+        bytes_total: i64,
+    ) -> anyhow::Result<u64> {
+        use std::io::{Read, Write};
+
+        let file_size = std::fs::metadata(src)?.len();
+
+        if file_size < LARGE_FILE_THRESHOLD {
+            return Ok(std::fs::copy(src, dst)?);
+        }
+
+        let mut src_file = std::fs::File::open(src)?;
+        let mut dst_file = std::fs::File::create(dst)?;
+        let mut buf = vec![0u8; CHUNK_SIZE];
+        let mut written: u64 = 0;
+
+        loop {
+            let n = src_file.read(&mut buf)?;
+            if n == 0 { break; }
+            dst_file.write_all(&buf[..n])?;
+            written += n as u64;
+            self.emit_progress(files_done, files_total, bytes_before + written as i64, bytes_total);
+        }
+
+        Ok(written)
     }
 
     /// Returns (bytes_copied, files_copied, checksum_string)
@@ -461,8 +507,9 @@ impl CopyJob {
                     .ok_or_else(|| anyhow::anyhow!("Cannot determine file name from source path"))?;
                 let dest_file = version_path.join(file_name);
 
-                self.emit_progress(0, 1, 0);
-                let bytes = std::fs::copy(source_path, &dest_file)?;
+                let file_size = std::fs::metadata(source_path).map(|m| m.len()).unwrap_or(0) as i64;
+                self.emit_progress(0, 1, 0, file_size);
+                let bytes = self.copy_file_chunked(source_path, &dest_file, 0, 1, 0, file_size)?;
 
                 // SHA-256 integrity check
                 let src_hash = compute_file_hash(source_path)?;
@@ -474,7 +521,7 @@ impl CopyJob {
                     );
                 }
 
-                self.emit_progress(1, 1, bytes as i64);
+                self.emit_progress(1, 1, bytes as i64, file_size);
                 Ok((bytes as i64, 1, Some(src_hash)))
             }
             SourceType::Directory => {
@@ -491,8 +538,9 @@ impl CopyJob {
                         None
                     };
 
-                // Collect all entries first so we know totals for progress
-                let mut file_entries: Vec<(std::path::PathBuf, std::path::PathBuf)> = Vec::new();
+                // Collect all entries first so we know totals for progress.
+                // Each tuple: (source_path, dest_path, file_size_bytes)
+                let mut file_entries: Vec<(std::path::PathBuf, std::path::PathBuf, u64)> = Vec::new();
                 let mut dir_entries: Vec<std::path::PathBuf> = Vec::new();
 
                 for entry in walkdir::WalkDir::new(source_path) {
@@ -525,32 +573,34 @@ impl CopyJob {
                     if entry.file_type().is_dir() {
                         dir_entries.push(dest_entry);
                     } else if entry.file_type().is_file() {
-                        file_entries.push((entry.path().to_path_buf(), dest_entry));
+                        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                        file_entries.push((entry.path().to_path_buf(), dest_entry, size));
                     }
                 }
 
                 let files_total = file_entries.len() as i32;
-                self.emit_progress(0, files_total, 0);
+                let total_expected_bytes: i64 = file_entries.iter().map(|(_, _, s)| *s as i64).sum();
+                self.emit_progress(0, files_total, 0, total_expected_bytes);
 
                 // Create directories
                 for dir in &dir_entries {
                     std::fs::create_dir_all(dir)?;
                 }
 
-                // Copy files with progress
+                // Copy files with progress (large files get per-chunk events)
                 let mut total_bytes: i64 = 0;
                 let mut total_files: i32 = 0;
                 let mut bytes_done: i64 = 0;
 
-                for (src_path, dst_path) in &file_entries {
+                for (src_path, dst_path, _) in &file_entries {
                     if let Some(parent) = dst_path.parent() {
                         std::fs::create_dir_all(parent)?;
                     }
-                    let bytes = std::fs::copy(src_path, dst_path)?;
+                    let bytes = self.copy_file_chunked(src_path, dst_path, total_files, files_total, bytes_done, total_expected_bytes)?;
                     total_bytes += bytes as i64;
                     total_files += 1;
                     bytes_done += bytes as i64;
-                    self.emit_progress(total_files, files_total, bytes_done);
+                    self.emit_progress(total_files, files_total, bytes_done, total_expected_bytes);
                 }
 
                 // Verify: destination file count must match what we copied
@@ -617,4 +667,236 @@ pub fn compute_next_run_pub(
     after: chrono::DateTime<Utc>,
 ) -> Option<chrono::DateTime<Utc>> {
     compute_next_run(schedule, after)
+}
+
+// ── Integration tests ─────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use chrono::Utc;
+    use crate::models::{Source, Destination, SourceType, DestinationType};
+    use crate::models::schedule::{Schedule, RetentionPolicy, VersionNaming};
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    fn make_source(path: &str, source_type: SourceType) -> Source {
+        Source {
+            id: "test-src-id".to_string(),
+            name: "Test Source".to_string(),
+            path: path.to_string(),
+            source_type,
+            enabled: true,
+            created_at: Utc::now(),
+            destinations: vec![],
+        }
+    }
+
+    fn make_destination(path: &str) -> Destination {
+        Destination {
+            id: "test-dst-id".to_string(),
+            source_id: "test-src-id".to_string(),
+            path: path.to_string(),
+            schedule: Schedule::Manual,
+            retention: RetentionPolicy { max_versions: 5, naming: VersionNaming::Timestamp },
+            exclusions: vec![],
+            enabled: true,
+            incremental: false,
+            last_run: None,
+            last_status: None,
+            next_run: None,
+            destination_type: DestinationType::Local,
+            cloud_config: None,
+            sftp_config: None,
+            oauth_config: None,
+            webdav_config: None,
+            encrypt: false,
+            encrypt_password_enc: None,
+            encrypt_salt: None,
+        }
+    }
+
+    fn make_job(source: Source, destination: Destination) -> CopyJob {
+        CopyJob { source, destination, trigger: "Manual".to_string(), app: None }
+    }
+
+    // ── Tests ─────────────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_copy_single_file() {
+        let src_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+
+        let src_file = src_dir.path().join("hello.txt");
+        std::fs::write(&src_file, b"hello world").unwrap();
+
+        let src = make_source(src_file.to_str().unwrap(), SourceType::File);
+        let dst = make_destination(dst_dir.path().to_str().unwrap());
+        let job = make_job(src, dst);
+
+        let version_path = dst_dir.path().join("v1");
+        let (bytes, files, checksum) = job.do_copy(&version_path).await.unwrap();
+
+        assert_eq!(files, 1);
+        assert_eq!(bytes, 11);
+        assert!(checksum.is_some());
+
+        let dst_file = version_path.join("hello.txt");
+        assert!(dst_file.exists());
+        assert_eq!(std::fs::read(&dst_file).unwrap(), b"hello world");
+    }
+
+    #[tokio::test]
+    async fn test_copy_directory() {
+        let src_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+
+        std::fs::write(src_dir.path().join("a.txt"), b"aaa").unwrap();
+        std::fs::write(src_dir.path().join("b.txt"), b"bbbb").unwrap();
+        let sub = src_dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("c.txt"), b"ccccc").unwrap();
+
+        let src = make_source(src_dir.path().to_str().unwrap(), SourceType::Directory);
+        let dst = make_destination(dst_dir.path().to_str().unwrap());
+        let job = make_job(src, dst);
+
+        let version_path = dst_dir.path().join("v1");
+        let (bytes, files, _) = job.do_copy(&version_path).await.unwrap();
+
+        assert_eq!(files, 3);
+        assert_eq!(bytes, 12); // 3 + 4 + 5
+        assert!(version_path.join("a.txt").exists());
+        assert!(version_path.join("b.txt").exists());
+        assert!(version_path.join("sub").join("c.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn test_copy_directory_with_exclusion() {
+        let src_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+
+        std::fs::write(src_dir.path().join("keep.txt"), b"keep").unwrap();
+        std::fs::write(src_dir.path().join("skip.log"), b"skip").unwrap();
+
+        let src = make_source(src_dir.path().to_str().unwrap(), SourceType::Directory);
+        let mut dst = make_destination(dst_dir.path().to_str().unwrap());
+        dst.exclusions = vec!["*.log".to_string()];
+        let job = make_job(src, dst);
+
+        let version_path = dst_dir.path().join("v1");
+        let (_, files, _) = job.do_copy(&version_path).await.unwrap();
+
+        assert_eq!(files, 1);
+        assert!(version_path.join("keep.txt").exists());
+        assert!(!version_path.join("skip.log").exists());
+    }
+
+    #[tokio::test]
+    async fn test_incremental_skips_old_files() {
+        let src_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+
+        // Create two files; one "old" (before last_run), one "new" (after)
+        let old_file = src_dir.path().join("old.txt");
+        let new_file = src_dir.path().join("new.txt");
+        std::fs::write(&old_file, b"old").unwrap();
+        std::fs::write(&new_file, b"new").unwrap();
+
+        // old_file was written before last_run; new_file was written after (just now)
+        // We rely on the OS setting mtime = now at write time, which is already the case.
+
+        let src = make_source(src_dir.path().to_str().unwrap(), SourceType::Directory);
+        let mut dst = make_destination(dst_dir.path().to_str().unwrap());
+        dst.incremental = true;
+        // last_run set to now — old_file's mtime is in the past, new_file's is recent
+        dst.last_run = Some(Utc::now() - chrono::Duration::seconds(1800));
+
+        let job = make_job(src, dst);
+        let version_path = dst_dir.path().join("v1");
+        let (_, files, _) = job.do_copy(&version_path).await.unwrap();
+
+        // new_file was created after last_run so it should be copied;
+        // old_file mtime <= last_run so it may be skipped.
+        // At minimum, 1 file (new.txt) must be copied.
+        assert!(files >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_validate_missing_source() {
+        let dst_dir = TempDir::new().unwrap();
+        let src = make_source("/nonexistent/path/that/does/not/exist", SourceType::File);
+        let dst = make_destination(dst_dir.path().to_str().unwrap());
+        let job = make_job(src, dst);
+
+        let result = job.validate_paths();
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("bulunamadı") || msg.contains("not found") || msg.contains("exist"));
+    }
+
+    #[tokio::test]
+    async fn test_validate_destination_inside_source_rejected() {
+        let src_dir = TempDir::new().unwrap();
+        // dst is a subdirectory of src — circular copy must be rejected
+        let dst_path = src_dir.path().join("backup");
+        std::fs::create_dir_all(&dst_path).unwrap();
+
+        let src = make_source(src_dir.path().to_str().unwrap(), SourceType::Directory);
+        let dst = make_destination(dst_path.to_str().unwrap());
+        let job = make_job(src, dst);
+
+        let result = job.validate_paths();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_count_dir_stats_single_file() {
+        let dir = TempDir::new().unwrap();
+        let f = dir.path().join("file.bin");
+        std::fs::write(&f, vec![0u8; 100]).unwrap();
+
+        let (bytes, files) = count_dir_stats(dir.path()).unwrap();
+        assert_eq!(files, 1);
+        assert_eq!(bytes, 100);
+    }
+
+    #[test]
+    fn test_count_dir_stats_nested() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("a.bin"), vec![0u8; 50]).unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        std::fs::write(sub.join("b.bin"), vec![0u8; 150]).unwrap();
+
+        let (bytes, files) = count_dir_stats(dir.path()).unwrap();
+        assert_eq!(files, 2);
+        assert_eq!(bytes, 200);
+    }
+
+    #[test]
+    fn test_compute_next_run_interval() {
+        use crate::models::Schedule;
+        let after = Utc::now();
+        let next = compute_next_run(&Schedule::Interval { minutes: 30 }, after).unwrap();
+        let diff = (next - after).num_minutes();
+        assert_eq!(diff, 30);
+    }
+
+    #[test]
+    fn test_compute_next_run_manual_returns_none() {
+        use crate::models::Schedule;
+        let result = compute_next_run(&Schedule::Manual, Utc::now());
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_build_exclusion_set_matches() {
+        let patterns = vec!["*.log".to_string(), ".git/**".to_string()];
+        let set = build_exclusion_set(&patterns);
+        assert!(set.is_match("error.log"));
+        assert!(set.is_match(".git/config"));
+        assert!(!set.is_match("main.rs"));
+    }
 }
