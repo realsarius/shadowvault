@@ -171,6 +171,14 @@ impl CopyJob {
             anyhow::bail!("Kaynak yol bulunamadı: {}", self.source.path);
         }
 
+        // Reject destination if it is a symlink (symlink attack prevention)
+        if dst.exists() {
+            let meta = std::fs::symlink_metadata(dst)?;
+            if meta.file_type().is_symlink() {
+                anyhow::bail!("Hedef yol bir sembolik bağ — güvenlik ihlali: {}", self.destination.path);
+            }
+        }
+
         let src_canonical = src.canonicalize()?;
 
         // Canonicalize the nearest existing ancestor of destination

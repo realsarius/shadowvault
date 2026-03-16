@@ -51,12 +51,13 @@ impl Default for Scheduler {
 }
 
 /// Calculates how long to sleep until the next cron fire time.
+/// Uses local timezone so expressions like "0 9 * * *" fire at 09:00 local time.
 fn next_cron_duration(expression: &str) -> Duration {
     use std::str::FromStr;
     match cron::Schedule::from_str(expression) {
-        Ok(sched) => match sched.upcoming(Utc).next() {
+        Ok(sched) => match sched.upcoming(chrono::Local).next() {
             Some(next) => {
-                let ms = (next - Utc::now()).num_milliseconds();
+                let ms = (next - chrono::Local::now()).num_milliseconds();
                 if ms > 0 {
                     Duration::from_millis(ms as u64)
                 } else {
@@ -112,10 +113,13 @@ impl Scheduler {
                     Schedule::Cron { expression } => {
                         use std::str::FromStr;
                         match cron::Schedule::from_str(expression) {
-                            Ok(sched) => match sched.after(&last_run).next() {
-                                Some(next) => next <= Utc::now(),
-                                None => false,
-                            },
+                            Ok(sched) => {
+                                let last_local = last_run.with_timezone(&chrono::Local);
+                                match sched.after(&last_local).next() {
+                                    Some(next) => next <= chrono::Local::now(),
+                                    None => false,
+                                }
+                            }
                             Err(_) => false,
                         }
                     }

@@ -141,6 +141,7 @@ pub async fn activate_license(
 
 /// Validates the stored license key against the backend API.
 /// Falls back to "valid" (offline grace) when the network is unreachable.
+/// Rate-limited: skips the API call if validated within the last 60 seconds.
 #[tauri::command]
 pub async fn validate_license(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let hw_raw = hardware_id_raw();
@@ -159,8 +160,18 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<serde_json::
         None => return Ok(serde_json::json!({ "status": "invalid" })),
     };
 
+    // Rate limit: if last validation was < 60s ago, return cached "valid"
+    if let Ok(Some(ts_str)) = queries::get_setting(&state.db, "license_validated_at").await {
+        if let Ok(ts) = ts_str.parse::<i64>() {
+            let elapsed = chrono::Utc::now().timestamp() - ts;
+            if elapsed < 60 {
+                return Ok(serde_json::json!({ "status": "valid", "cached": true }));
+            }
+        }
+    }
+
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(8))
+        .timeout(std::time::Duration::from_secs(5))
         .build()
         .map_err(|e| e.to_string())?;
 
@@ -173,6 +184,14 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<serde_json::
         Ok(response) => {
             let data: serde_json::Value = response.json().await.unwrap_or_default();
             let valid = data.get("valid").and_then(|v| v.as_bool()).unwrap_or(false);
+            if valid {
+                // Cache the timestamp
+                let _ = queries::upsert_setting(
+                    &state.db,
+                    "license_validated_at",
+                    &chrono::Utc::now().timestamp().to_string(),
+                ).await;
+            }
             Ok(serde_json::json!({ "status": if valid { "valid" } else { "invalid" } }))
         }
         Err(_) => {
