@@ -10,15 +10,21 @@ import { Settings } from "./pages/Settings";
 import { LicensePage } from "./pages/LicensePage";
 import { VaultPage } from "./pages/VaultPage";
 import { AboutModal } from "./components/ui/AboutModal";
+import { OnboardingModal } from "./components/ui/OnboardingModal";
 import { store, setStore, initStore, initLicense } from "./store";
 import "./styles/globals.css";
 
 export function App() {
   const [showAbout, setShowAbout] = createSignal(false);
+  const [showOnboarding, setShowOnboarding] = createSignal(false);
 
   onMount(async () => {
-    initStore();
+    await initStore();
     initLicense();
+
+    // Show onboarding on first run
+    const done = await api.settings.getValue("onboarding_done").catch(() => null);
+    if (done !== "true") setShowOnboarding(true);
 
     // Keyboard shortcuts
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -99,6 +105,7 @@ export function App() {
         </Switch>
       </Layout>
       <AboutModal open={showAbout()} onClose={() => setShowAbout(false)} />
+      <OnboardingModal open={showOnboarding()} onClose={() => setShowOnboarding(false)} />
       <Toaster
         position="bottom-right"
         richColors

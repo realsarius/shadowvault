@@ -72,6 +72,14 @@ const tr = {
   src_empty: "Henüz kaynak yok.",
   src_empty_hint: "Yeni bir kaynak ekleyin.",
   src_targets: "hedef",
+  src_filter_all: "Tümü",
+  src_filter_active: "Aktif",
+  src_filter_disabled: "Devre Dışı",
+  src_filter_failed: "Hatalı",
+  src_filter_empty: "Filtreyle eşleşen kaynak yok.",
+  src_sort_name: "Ad",
+  src_sort_last_run: "Son Çalışma",
+  src_sort_status: "Durum",
 
   // Destination list
   dest_empty: "Bu kaynak için henüz hedef yok.",
@@ -185,6 +193,8 @@ const tr = {
   log_all_statuses: "Tüm Durumlar",
   log_records: "kayıt",
   log_empty: "Gösterilecek log kaydı yok.",
+  log_load_more: "{n} kayıt daha yükle",
+  log_loading_more: "Yükleniyor...",
   log_col_status: "Durum",
   log_col_source: "Kaynak",
   log_col_dest: "Hedef",
@@ -408,6 +418,22 @@ const tr = {
   dest_decrypt_password: "Parola",
   dest_decrypt_success: "{n} dosya başarıyla çözüldü.",
   dest_decrypt_error: "Şifre çözme başarısız",
+
+  // Onboarding
+  onboard_step1_title: "ShadowVault'a Hoş Geldiniz",
+  onboard_step1_desc: "Dosyalarınızı yerel klasörlere, bulut depolama veya SFTP'ye otomatik yedekleyin — zamanlama, versiyonlama ve şifreleme desteğiyle.",
+  onboard_step2_title: "İlk Kaynağınızı Ekleyin",
+  onboard_step2_desc: "Kaynak, yedeklemek istediğiniz bir klasör veya dosyadır. Her kaynağın birden fazla hedefi olabilir.",
+  onboard_step2_tip1: "Bir klasörü uygulama penceresine sürükleyip bırakın",
+  onboard_step2_tip2: "Kaynaklar panelinde + Yeni butonuna tıklayın",
+  onboard_step2_tip3: "Zamanlama seçin: aralık, cron veya değişince",
+  onboard_step3_title: "Hazırsınız!",
+  onboard_step3_desc: "Yedeklemeleriniz otomatik çalışacak. İşte bazı kısayollar:",
+  onboard_shortcut_new: "Yeni kaynak",
+  onboard_shortcut_run: "Hepsini çalıştır",
+  onboard_btn_skip: "Atla",
+  onboard_btn_later: "Sonra",
+  onboard_btn_start: "İlk Kaynağı Ekle",
 
   // Updater
   set_update_section: "Güncellemeler",
@@ -838,6 +864,36 @@ const en: Record<keyof typeof tr, string> = {
   dest_decrypt_password: "Password",
   dest_decrypt_success: "{n} file(s) decrypted successfully.",
   dest_decrypt_error: "Decryption failed",
+
+  // Source sort/filter
+  src_filter_all: "All",
+  src_filter_active: "Active",
+  src_filter_disabled: "Disabled",
+  src_filter_failed: "Failed",
+  src_filter_empty: "No sources match the filter.",
+  src_sort_name: "Name",
+  src_sort_last_run: "Last Run",
+  src_sort_status: "Status",
+
+  // Log pagination
+  log_load_more: "Load {n} more",
+  log_loading_more: "Loading...",
+
+  // Onboarding
+  onboard_step1_title: "Welcome to ShadowVault",
+  onboard_step1_desc: "Automatically back up your files to local folders, cloud storage, or SFTP — with scheduling, versioning, and encryption.",
+  onboard_step2_title: "Add Your First Source",
+  onboard_step2_desc: "A source is a folder or file you want to back up. Each source can have multiple destinations.",
+  onboard_step2_tip1: "Drag & drop a folder onto the app window",
+  onboard_step2_tip2: "Click + New in the Sources panel",
+  onboard_step2_tip3: "Choose a schedule: interval, cron, or on-change",
+  onboard_step3_title: "You're Ready",
+  onboard_step3_desc: "Your backups will run automatically. Here are some useful shortcuts:",
+  onboard_shortcut_new: "New source",
+  onboard_shortcut_run: "Run all now",
+  onboard_btn_skip: "Skip",
+  onboard_btn_later: "Later",
+  onboard_btn_start: "Add First Source",
 };
 
 export type TKey = keyof typeof tr;
