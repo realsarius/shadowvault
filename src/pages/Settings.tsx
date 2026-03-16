@@ -2,7 +2,7 @@ import { createSignal, onMount, Show } from "solid-js";
 import { getVersion } from "@tauri-apps/api/app";
 import { emit } from "@tauri-apps/api/event";
 import { toast } from "solid-sonner";
-import { store, loadSettings } from "../store";
+import { store, loadSettings, refreshLogs } from "../store";
 import { api } from "../api/tauri";
 import { Toggle } from "../components/ui/Toggle";
 import { Button } from "../components/ui/Button";
@@ -127,6 +127,7 @@ export function Settings() {
     try {
       const count = await api.logs.clearOld(logRetentionDays());
       toast.success(`${count} ${t("set_records_deleted")}`);
+      await refreshLogs();
     } catch { /* ignore */ }
     finally { setClearingLogs(false); }
   };

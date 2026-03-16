@@ -3,9 +3,12 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "../api/tauri";
 import type { Source, LogEntry, AppSettings, CopyProgress } from "./types";
 
+const LOG_PAGE_SIZE = 50;
+
 interface AppStore {
   sources: Source[];
   logs: LogEntry[];
+  logTotal: number;
   settings: AppSettings | null;
   isSchedulerPaused: boolean;
   runningJobs: Set<string>;
@@ -21,6 +24,7 @@ interface AppStore {
 const [store, setStore] = createStore<AppStore>({
   sources: [],
   logs: [],
+  logTotal: 0,
   settings: null,
   isSchedulerPaused: false,
   runningJobs: new Set(),
@@ -39,8 +43,19 @@ export async function refreshSources() {
 }
 
 export async function refreshLogs(sourceId?: string) {
-  const logs = await api.logs.get({ sourceId, limit: 200 });
+  const [logs, total] = await Promise.all([
+    api.logs.get({ sourceId, limit: LOG_PAGE_SIZE, offset: 0 }),
+    api.logs.count(sourceId),
+  ]);
   setStore("logs", logs);
+  setStore("logTotal", total);
+}
+
+export async function loadMoreLogs(sourceId?: string) {
+  const offset = store.logs.length;
+  if (offset >= store.logTotal) return;
+  const more = await api.logs.get({ sourceId, limit: LOG_PAGE_SIZE, offset });
+  setStore("logs", [...store.logs, ...more]);
 }
 
 export async function loadSettings() {
@@ -51,7 +66,6 @@ export async function loadSettings() {
 export async function initStore() {
   setStore("isLoading", true);
   await Promise.all([refreshSources(), refreshLogs(), loadSettings()]);
-  // Restore sidebar collapsed state from DB
   const collapsed = await api.settings.getValue("sidebar_collapsed").catch(() => null);
   if (collapsed !== null) {
     setStore("sidebarCollapsed", collapsed === "true");
@@ -59,14 +73,21 @@ export async function initStore() {
   setStore("isLoading", false);
 }
 
-export async function initLicense(): Promise<void> {
+// BUG-04: retry up to 3 times — AppState may not be ready immediately on startup
+export async function initLicense(retries = 3): Promise<void> {
   setStore("licenseStatus", "checking");
-  try {
-    const result = await api.license.validate();
-    setStore("licenseStatus", result.status);
-  } catch {
-    setStore("licenseStatus", "invalid");
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const result = await api.license.validate();
+      setStore("licenseStatus", result.status);
+      return;
+    } catch {
+      if (attempt < retries - 1) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    }
   }
+  setStore("licenseStatus", "invalid");
 }
 
 export async function deactivateLicense(): Promise<{ success: boolean; error?: string }> {
