@@ -44,6 +44,9 @@
 .icon {
   font-size: 14px;
   flex-shrink: 0;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
 }
 
 .name {

@@ -52,6 +52,11 @@ pub async fn check_path_type(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn open_path(path: String) -> Result<(), String> {
+    open::that(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_disk_info(path: String) -> Result<DiskInfo, String> {
     use sysinfo::Disks;
 

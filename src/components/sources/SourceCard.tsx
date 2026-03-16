@@ -1,6 +1,7 @@
-import { TbOutlineFolder, TbOutlineFile, TbOutlinePencil } from "solid-icons/tb";
+import { TbOutlineFolder, TbOutlineFile, TbOutlinePencil, TbOutlineFolderOpen } from "solid-icons/tb";
 import { Badge } from "../ui/Badge";
 import { t } from "../../i18n";
+import { api } from "../../api/tauri";
 import type { Source } from "../../store/types";
 import styles from "./SourceCard.module.css";
 
@@ -31,6 +32,16 @@ export function SourceCard(props: Props) {
           <Badge variant={props.source.enabled ? "success" : "neutral"}>
             {props.source.enabled ? t("status_active") : t("status_disabled")}
           </Badge>
+          <span
+            class={styles.editBtn}
+            title={t("open_src_folder")}
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); api.fs.openPath(props.source.path).catch(() => {}); }}
+            onKeyDown={(e) => e.key === "Enter" && (e.stopPropagation(), api.fs.openPath(props.source.path).catch(() => {}))}
+          >
+            <TbOutlineFolderOpen size={12} />
+          </span>
           <span
             class={styles.editBtn}
             title={t("btn_edit")}

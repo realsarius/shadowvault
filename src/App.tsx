@@ -8,6 +8,7 @@ import { Sources } from "./pages/Sources";
 import { Logs } from "./pages/Logs";
 import { Settings } from "./pages/Settings";
 import { LicensePage } from "./pages/LicensePage";
+import { VaultPage } from "./pages/VaultPage";
 import { AboutModal } from "./components/ui/AboutModal";
 import { store, setStore, initStore, initLicense } from "./store";
 import "./styles/globals.css";
@@ -94,6 +95,7 @@ export function App() {
           <Match when={store.activePage === "logs"}><Logs /></Match>
           <Match when={store.activePage === "settings"}><Settings /></Match>
           <Match when={store.activePage === "license"}><LicensePage /></Match>
+          <Match when={store.activePage === "vault"}><VaultPage /></Match>
         </Switch>
       </Layout>
       <AboutModal open={showAbout()} onClose={() => setShowAbout(false)} />

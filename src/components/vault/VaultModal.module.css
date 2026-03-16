@@ -1,0 +1,111 @@
+.field {
+  margin-bottom: 16px;
+}
+
+.label {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 12px;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.input {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  outline: none;
+  font-family: var(--font-sans);
+  box-sizing: border-box;
+}
+
+.input:focus {
+  border-color: var(--border-focus);
+}
+
+.error {
+  background: rgba(255, 77, 77, 0.1);
+  border: 1px solid var(--red);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  color: var(--red);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.footerRow {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.hint {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 16px;
+}
+
+.note {
+  font-size: 11px;
+  color: var(--text-tertiary, var(--text-secondary));
+  margin: 4px 0 0;
+  opacity: 0.7;
+}
+
+.inputRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.inputFlex {
+  flex: 1;
+}
+
+/* ── Algorithm selector ── */
+.algoGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.algoCard {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 10px 8px;
+  cursor: pointer;
+  background: var(--bg-surface);
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.algoCard:hover {
+  border-color: var(--border-focus);
+  background: var(--bg-hover);
+}
+
+.algoCard[data-active="true"] {
+  border-color: var(--accent);
+  background: rgba(var(--accent-rgb, 90, 144, 245), 0.1);
+}
+
+.algoName {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+  font-family: var(--font-mono, monospace);
+}
+
+.algoDesc {
+  display: block;
+  font-size: 10px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}

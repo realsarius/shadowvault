@@ -7,23 +7,25 @@ import {
   TbOutlineCrown,
   TbOutlineMenu,
   TbOutlineChevronLeft,
+  TbOutlineShieldLock,
 } from "solid-icons/tb";
 import { store, setStore } from "../../store";
 import { api } from "../../api/tauri";
 import { t } from "../../i18n";
 import styles from "./Sidebar.module.css";
 
-type Page = "dashboard" | "sources" | "logs" | "settings" | "license";
+type Page = "dashboard" | "sources" | "logs" | "settings" | "license" | "vault";
 
 interface NavItem {
   id: Page;
-  labelKey: "nav_dashboard" | "nav_sources" | "nav_logs" | "nav_license" | "nav_settings";
+  labelKey: "nav_dashboard" | "nav_sources" | "nav_logs" | "nav_license" | "nav_settings" | "nav_vault";
   icon: (props: { size: number }) => JSX.Element;
 }
 
 const items: NavItem[] = [
   { id: "dashboard", labelKey: "nav_dashboard", icon: (p) => <TbOutlineLayoutDashboard size={p.size} /> },
   { id: "sources",   labelKey: "nav_sources",   icon: (p) => <TbOutlineFolders size={p.size} /> },
+  { id: "vault",     labelKey: "nav_vault",     icon: (p) => <TbOutlineShieldLock size={p.size} /> },
   { id: "logs",      labelKey: "nav_logs",      icon: (p) => <TbOutlineClipboardList size={p.size} /> },
   { id: "license",   labelKey: "nav_license",   icon: (p) => <TbOutlineCrown size={p.size} /> },
   { id: "settings",  labelKey: "nav_settings",  icon: (p) => <TbOutlineSettings2 size={p.size} /> },

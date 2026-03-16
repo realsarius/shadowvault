@@ -1,0 +1,140 @@
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebarHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.sidebarTitle {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.newBtn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.newBtn:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.07));
+  color: var(--text-primary);
+}
+
+.vaultList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.vaultItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.vaultItem:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+}
+
+.vaultItem[data-active="true"] {
+  background: rgba(var(--accent-rgb, 90, 144, 245), 0.16);
+  color: var(--text-primary);
+}
+
+.vaultIcon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+.vaultName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.vaultActions {
+  display: none;
+  gap: 2px;
+  align-items: center;
+}
+
+.vaultItem:hover .vaultActions,
+.vaultItem[data-active="true"] .vaultActions {
+  display: flex;
+}
+
+.actionBtn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+}
+
+.actionBtn:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.08));
+  color: var(--text-primary);
+}
+
+.dangerBtn:hover {
+  color: var(--red);
+}
+
+.openFilesWarning {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.openFilesWarning p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+.openFilesList {
+  margin: 0;
+  padding: 0 0 0 18px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  list-style: disc;
+}
+
+.openFilesList li {
+  margin-bottom: 2px;
+}
