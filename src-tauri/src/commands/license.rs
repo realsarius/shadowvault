@@ -209,6 +209,37 @@ pub async fn store_license(state: State<'_, AppState>, key: String) -> Result<()
         .map_err(|e| e.to_string())
 }
 
+/// Core activation logic shared between the Tauri command and the deep link handler.
+/// Returns Ok(true) if activated, Ok(false) if invalid key.
+pub async fn activate_license_with_key(db: &std::sync::Arc<sqlx::SqlitePool>, key: &str) -> anyhow::Result<bool> {
+    let hw_raw = hardware_id_raw();
+    let hw_id = hardware_id_formatted(&hw_raw);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+
+    let response = client
+        .post(format!("{}/licenses/activate", LICENSE_API))
+        .json(&LicenseApiRequest { key: key.to_string(), hardware_id: hw_id })
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Sunucuya bağlanılamadı: {}", e))?;
+
+    let data: serde_json::Value = response.json().await?;
+
+    let is_activated = data.get("valid").and_then(|v| v.as_bool()).unwrap_or(false)
+        || data.get("activated_at").and_then(|v| v.as_str()).is_some();
+
+    if is_activated {
+        let encrypted = encrypt_value(key, &hw_raw).map_err(|e| anyhow::anyhow!(e))?;
+        queries::upsert_setting(db, "license_key", &encrypted).await?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
 /// Clears the stored license key (local only, no server call).
 #[tauri::command]
 pub async fn clear_license(state: State<'_, AppState>) -> Result<(), String> {

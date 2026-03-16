@@ -4,6 +4,9 @@ use tokio::sync::Mutex;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use tauri::Manager;
+use tauri::Emitter;
+use tauri_plugin_deep_link::DeepLinkExt;
+use vault::session::SessionStore;
 
 pub mod models;
 pub mod db;
@@ -13,6 +16,7 @@ pub mod tray;
 pub mod icons_gen;
 pub mod menu;
 pub mod notifications;
+pub mod vault;
 
 use engine::scheduler::Scheduler;
 use engine::watcher::FileWatcher;
@@ -35,6 +39,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
@@ -50,6 +55,25 @@ pub fn run() {
             let ah_menu = app_handle.clone();
             app.on_menu_event(move |_app, event| {
                 menu::handle_menu_event(&ah_menu, event.id().as_ref());
+            });
+
+            // Deep link handler: shadowvault://activate?key=SV-XXXX
+            let ah_deeplink = app_handle.clone();
+            app.deep_link().on_open_url(move |event: tauri_plugin_deep_link::OpenUrlEvent| {
+                let urls = event.urls();
+                for url in &urls {
+                    if url.scheme() != "shadowvault" { continue; }
+                    if url.host_str() != Some("activate") { continue; }
+                    let key: Option<String> = url.query_pairs()
+                        .find(|(k, _)| k == "key")
+                        .map(|(_, v)| v.into_owned());
+                    if let Some(k) = key {
+                        let ah = ah_deeplink.clone();
+                        tauri::async_runtime::spawn(async move {
+                            handle_deep_link_activate(&ah, k).await;
+                        });
+                    }
+                }
             });
 
             // Build initial menu (language resolved async after DB loads)
@@ -119,6 +143,7 @@ pub fn run() {
                 }
 
                 app_handle.manage(AppState { db: pool, scheduler, watcher, running_jobs, paused, minimize_to_tray });
+                app_handle.manage(Arc::new(SessionStore::new()));
             });
 
             Ok(())
@@ -130,6 +155,10 @@ pub fn run() {
                     .try_state::<AppState>()
                     .map(|s| s.minimize_to_tray.load(Ordering::SeqCst))
                     .unwrap_or(true);
+
+                // Pencere gizlenmeden/kapanmadan önce açık vault dosyalarını sync et
+                sync_open_vault_files(&app);
+
                 if should_minimize {
                     api.prevent_close();
                     let _ = window.hide();
@@ -160,6 +189,7 @@ pub fn run() {
             commands::fs::pick_file,
             commands::fs::get_disk_info,
             commands::fs::check_path_type,
+            commands::fs::open_path,
             commands::updater::check_update,
             commands::updater::install_update,
             commands::license::get_hardware_id,
@@ -178,10 +208,62 @@ pub fn run() {
             commands::cloud::test_sftp_connection,
             commands::oauth::run_oauth_flow,
             commands::oauth::test_oauth_connection,
+            commands::vault::create_vault,
+            commands::vault::list_vaults,
+            commands::vault::unlock_vault,
+            commands::vault::lock_vault,
+            commands::vault::list_entries,
+            commands::vault::import_file_cmd,
+            commands::vault::import_directory_cmd,
+            commands::vault::export_file_cmd,
+            commands::vault::open_file_cmd,
+            commands::vault::rename_entry_cmd,
+            commands::vault::move_entry_cmd,
+            commands::vault::delete_entry_cmd,
+            commands::vault::create_directory_cmd,
+            commands::vault::get_thumbnail,
+            commands::vault::delete_vault,
+            commands::vault::change_vault_password,
+            commands::vault::get_open_files,
+            commands::vault::sync_and_lock_vault,
+            commands::backup_decrypt::decrypt_backup,
             rebuild_app_menu,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Handles `shadowvault://activate?key=SV-XXXX` deep links from LemonSqueezy.
+async fn handle_deep_link_activate(app: &tauri::AppHandle, key: String) {
+    use commands::license::{activate_license_with_key};
+
+    log::info!("Deep link activation for key: {}", &key[..key.len().min(8)]);
+
+    let state = match app.try_state::<AppState>() {
+        Some(s) => s,
+        None => {
+            log::warn!("Deep link received before AppState was ready — ignoring");
+            return;
+        }
+    };
+
+    match activate_license_with_key(&state.db, &key).await {
+        Ok(true) => {
+            log::info!("Deep link license activation succeeded");
+            let _ = app.emit("license-activated", serde_json::json!({ "key": key }));
+            // Bring the main window to front
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }
+        Ok(false) => {
+            log::warn!("Deep link activation: invalid key");
+        }
+        Err(e) => {
+            log::error!("Deep link activation error: {}", e);
+        }
+    }
 }
 
 /// Called from frontend after a language change so the menu reflects the new locale.
@@ -189,4 +271,48 @@ pub fn run() {
 async fn rebuild_app_menu(app: tauri::AppHandle, lang: String) -> Result<(), String> {
     let m = menu::build_menu(&app, &lang).map_err(|e| e.to_string())?;
     app.set_menu(m).map(|_| ()).map_err(|e| e.to_string())
+}
+
+/// Pencere kapanmadan / gizlenmeden önce tüm açık vault dosyalarını otomatik kaydet.
+/// Bu fonksiyon senkronize I/O yapar (event handler zaten sync bağlamdadır).
+fn sync_open_vault_files(app: &tauri::AppHandle) {
+    use vault::fs::{reencrypt_from_temp, secure_delete_temp};
+
+    let sess = match app.try_state::<Arc<SessionStore>>() {
+        Some(s) => s,
+        None => return,
+    };
+
+    let (all_files, keys): (Vec<_>, std::collections::HashMap<String, [u8; 32]>) = {
+        let guard = sess.0.lock().unwrap();
+        let files = guard.get_all_open_files();
+        let keys = files
+            .iter()
+            .filter_map(|(_, e)| {
+                guard.get_key(&e.vault_id).map(|k| (e.vault_id.clone(), k))
+            })
+            .collect();
+        (files, keys)
+    };
+
+    for (tmp_path, entry) in &all_files {
+        if let Some(key) = keys.get(&entry.vault_id) {
+            let algorithm = vault::fs::VaultMeta::load(&entry.vault_path, key)
+                .map(|m| m.algorithm)
+                .unwrap_or_else(|_| "AES-256-GCM".to_string());
+            if let Err(e) = reencrypt_from_temp(&entry.vault_path, &entry.entry_id, tmp_path, key, &algorithm) {
+                log::warn!("Vault auto-sync failed for {}: {}", entry.file_name, e);
+            }
+        }
+        secure_delete_temp(tmp_path).ok();
+    }
+
+    // Session'ı temizle
+    if !all_files.is_empty() {
+        let mut guard = sess.0.lock().unwrap();
+        for (tmp_path, _) in &all_files {
+            guard.unregister_open_file(tmp_path);
+        }
+        log::info!("Vault auto-sync: {} file(s) saved before hide/close", all_files.len());
+    }
 }

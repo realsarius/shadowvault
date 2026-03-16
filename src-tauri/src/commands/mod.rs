@@ -11,3 +11,5 @@ pub mod notifications;
 pub mod preview;
 pub mod cloud;
 pub mod oauth;
+pub mod vault;
+pub mod backup_decrypt;

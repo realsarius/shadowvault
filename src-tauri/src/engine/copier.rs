@@ -4,6 +4,8 @@ use chrono::Utc;
 use sqlx::SqlitePool;
 use sha2::{Sha256, Digest};
 use globset::{Glob, GlobSetBuilder};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use sysinfo::System;
 
 use tauri::Emitter;
 
@@ -27,6 +29,109 @@ const BLOCKED_DEST_PREFIXES: &[&str] = &[
 const BLOCKED_DEST_PREFIXES: &[&str] = &[
     "C:\\Windows", "C:\\Program Files", "C:\\System Volume Information",
 ];
+
+// ── Backup encryption helpers ─────────────────────────────────────────────────
+
+/// Decrypts the hardware-ID-protected stored password, derives Argon2id key.
+fn derive_backup_key(encrypt_password_enc: &str, encrypt_salt: &str) -> anyhow::Result<[u8; 32]> {
+    use aes_gcm::{aead::{Aead, KeyInit}, Aes256Gcm, Key, Nonce};
+    use argon2::{Argon2, Params, Version};
+
+    // 1. Decrypt the stored password using HW key
+    let hw_raw = {
+        let mut sys = System::new();
+        sys.refresh_memory();
+        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
+        format!("shadowvault:{}:{}:{}", hostname, sys.total_memory(), sys.cpus().len())
+    };
+    let key_bytes: [u8; 32] = {
+        let mut hasher = Sha256::new();
+        hasher.update(hw_raw.as_bytes());
+        hasher.finalize().into()
+    };
+    let combined = BASE64.decode(encrypt_password_enc)?;
+    if combined.len() < 13 {
+        anyhow::bail!("Encrypted password too short");
+    }
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(&combined[..12]);
+    let password_bytes = cipher.decrypt(nonce, &combined[12..])
+        .map_err(|_| anyhow::anyhow!("Failed to decrypt backup password"))?;
+    let password = String::from_utf8(password_bytes)?;
+
+    // 2. Derive Argon2id key from password + salt
+    let salt_bytes = BASE64.decode(encrypt_salt)?;
+    let params = Params::new(65536, 3, 4, Some(32))
+        .map_err(|e| anyhow::anyhow!("Argon2 params: {e}"))?;
+    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
+    let mut master_key = [0u8; 32];
+    argon2.hash_password_into(password.as_bytes(), &salt_bytes, &mut master_key)
+        .map_err(|e| anyhow::anyhow!("Argon2 hash: {e}"))?;
+    Ok(master_key)
+}
+
+/// Derives Argon2id key directly from a plaintext password + base64 salt.
+pub fn derive_backup_key_from_password(password: &str, encrypt_salt: &str) -> anyhow::Result<[u8; 32]> {
+    use argon2::{Argon2, Params, Version};
+    let salt_bytes = BASE64.decode(encrypt_salt)?;
+    let params = Params::new(65536, 3, 4, Some(32))
+        .map_err(|e| anyhow::anyhow!("Argon2 params: {e}"))?;
+    let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
+    let mut master_key = [0u8; 32];
+    argon2.hash_password_into(password.as_bytes(), &salt_bytes, &mut master_key)
+        .map_err(|e| anyhow::anyhow!("Argon2 hash: {e}"))?;
+    Ok(master_key)
+}
+
+/// Encrypts all files in `dir` with AES-256-GCM and writes a manifest.
+/// Files are renamed to `<name>.enc`; original files are removed.
+fn encrypt_backup_dir(dir: &std::path::Path, key: &[u8; 32], salt_b64: &str) -> anyhow::Result<()> {
+    use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm, Key};
+    use std::io::Write;
+
+    let manifest = serde_json::json!({
+        "encrypted": true,
+        "algorithm": "AES-256-GCM",
+        "argon2_salt": salt_b64,
+        "argon2_m_cost": 65536,
+        "argon2_t_cost": 3,
+        "argon2_p_cost": 4,
+    });
+    let manifest_path = dir.join("shadowvault_enc_manifest.json");
+    let mut f = std::fs::File::create(&manifest_path)?;
+    f.write_all(manifest.to_string().as_bytes())?;
+
+    let cipher_key = Key::<Aes256Gcm>::from_slice(key);
+    let cipher = Aes256Gcm::new(cipher_key);
+
+    for entry in walkdir::WalkDir::new(dir) {
+        let entry = entry?;
+        if !entry.file_type().is_file() { continue; }
+        let path = entry.path();
+        // Skip the manifest itself
+        if path == manifest_path { continue; }
+        // Skip already-encrypted files
+        if path.extension().and_then(|e| e.to_str()) == Some("enc") { continue; }
+
+        let plaintext = std::fs::read(path)?;
+        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        let ciphertext = cipher.encrypt(&nonce, plaintext.as_ref())
+            .map_err(|_| anyhow::anyhow!("Encryption failed for {:?}", path))?;
+
+        let mut out = Vec::with_capacity(12 + ciphertext.len());
+        out.extend_from_slice(&nonce);
+        out.extend_from_slice(&ciphertext);
+
+        let enc_path = path.with_file_name(
+            format!("{}.enc", path.file_name().unwrap().to_string_lossy())
+        );
+        std::fs::write(&enc_path, &out)?;
+        std::fs::remove_file(path)?;
+    }
+
+    Ok(())
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -179,6 +284,22 @@ impl CopyJob {
 
         match copy_result {
             Ok((bytes_copied, files_copied, checksum)) => {
+                // Post-copy encryption for local destinations
+                if self.destination.encrypt {
+                    if let (Some(ref enc_pwd), Some(ref enc_salt)) =
+                        (&self.destination.encrypt_password_enc, &self.destination.encrypt_salt)
+                    {
+                        match derive_backup_key(enc_pwd, enc_salt) {
+                            Ok(key) => {
+                                if let Err(e) = encrypt_backup_dir(&version_path, &key, enc_salt) {
+                                    log::warn!("Backup encryption failed for {}: {}", self.destination.id, e);
+                                }
+                            }
+                            Err(e) => log::warn!("Could not derive backup key: {}", e),
+                        }
+                    }
+                }
+
                 let checksum_ref = checksum.as_deref();
                 queries::update_log_entry_completed(
                     &db, log_id, ended_at, "Success",

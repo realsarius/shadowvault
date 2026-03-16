@@ -63,6 +63,8 @@ export function EditDestinationModal(props: Props) {
   const [naming, setNaming] = createSignal<"Timestamp" | "Index" | "Overwrite">("Timestamp");
   const [exclusionsText, setExclusionsText] = createSignal("");
   const [incremental, setIncremental] = createSignal(false);
+  const [encrypt, setEncrypt] = createSignal(false);
+  const [encryptPassword, setEncryptPassword] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   const LOW_SPACE_THRESHOLD = 500 * 1024 * 1024;
 
@@ -79,6 +81,8 @@ export function EditDestinationModal(props: Props) {
       setNaming(d.retention.naming);
       setExclusionsText(d.exclusions.join("\n"));
       setIncremental(d.incremental ?? false);
+      setEncrypt(d.encrypt ?? false);
+      setEncryptPassword("");
       setAvailBytes(null);
 
       if (dt === "Local") {
@@ -193,7 +197,8 @@ export function EditDestinationModal(props: Props) {
         if (!destPath().trim()) { toast.error(t("add_dest_path_req")); setSaving(false); return; }
         await api.destinations.update(
           props.destination!.id, destPath(), schedule(), retention(),
-          props.destination!.enabled, exclusions, incremental(), "Local", null, null,
+          props.destination!.enabled, exclusions, incremental(), "Local", null, null, null,
+          encrypt(), encrypt() && encryptPassword().trim() ? encryptPassword().trim() : null,
         );
       } else if (destType() === "Sftp") {
         if (!sftpHost().trim() || !sftpUsername().trim()) { toast.error(t("sftp_fields_required")); setSaving(false); return; }
@@ -563,6 +568,26 @@ export function EditDestinationModal(props: Props) {
         <Toggle value={incremental()} onChange={setIncremental} label={t("add_dest_incremental")} />
         <div class={styles.hint}>{t("add_dest_incremental_desc")}</div>
       </div>
+
+      <Show when={destType() === "Local"}>
+        <div class={styles.field}>
+          <Toggle value={encrypt()} onChange={setEncrypt} label={t("dest_encrypt_label")} />
+          <div class={styles.hint}>{t("dest_encrypt_desc")}</div>
+        </div>
+        <Show when={encrypt()}>
+          <div class={styles.field}>
+            <label class={styles.label}>{t("dest_encrypt_password")}</label>
+            <input
+              class={styles.input}
+              type="password"
+              placeholder={encrypt() && props.destination?.encrypt ? "••• (mevcut parola korunuyor)" : t("dest_encrypt_password_placeholder")}
+              value={encryptPassword()}
+              onInput={(e) => setEncryptPassword(e.currentTarget.value)}
+            />
+            <div class={styles.hint}>{t("dest_encrypt_password_hint")}</div>
+          </div>
+        </Show>
+      </Show>
 
       <div class={styles.field}>
         <label class={styles.label}>{t("add_dest_exclusions")}</label>

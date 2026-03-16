@@ -270,7 +270,7 @@ pub async fn delete_source(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
 
 pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::Result<Option<Destination>> {
     let row = sqlx::query(
-        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json
+        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt
          FROM destinations WHERE id = ?"
     )
     .bind(dest_id)
@@ -305,6 +305,9 @@ pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::
             let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
             let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
             let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
+            let encrypt_int: i64 = row.try_get("encrypt").unwrap_or(0);
+            let encrypt_password_enc: Option<String> = row.try_get("encrypt_password_enc").unwrap_or(None);
+            let encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
 
             Ok(Some(Destination {
                 id,
@@ -322,6 +325,9 @@ pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::
                 cloud_config,
                 sftp_config,
                 oauth_config,
+                encrypt: encrypt_int != 0,
+                encrypt_password_enc,
+                encrypt_salt,
             }))
         }
     }
@@ -349,8 +355,8 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     };
 
     sqlx::query(
-        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&dest.id)
     .bind(&dest.source_id)
@@ -365,6 +371,9 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     .bind(next_run)
     .bind(dest_type_str)
     .bind(encrypted_cloud_config)
+    .bind(if dest.encrypt { 1i64 } else { 0i64 })
+    .bind(&dest.encrypt_password_enc)
+    .bind(&dest.encrypt_salt)
     .execute(pool)
     .await?;
 
@@ -393,7 +402,7 @@ pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     };
 
     sqlx::query(
-        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, exclusions_json = ?, enabled = ?, incremental = ?, last_run = ?, last_status = ?, next_run = ?, destination_type = ?, cloud_config_json = ?
+        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, exclusions_json = ?, enabled = ?, incremental = ?, last_run = ?, last_status = ?, next_run = ?, destination_type = ?, cloud_config_json = ?, encrypt = ?, encrypt_password_enc = ?, encrypt_salt = ?
          WHERE id = ?"
     )
     .bind(&dest.path)
@@ -407,6 +416,9 @@ pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     .bind(next_run)
     .bind(dest_type_str)
     .bind(encrypted_cloud_config)
+    .bind(if dest.encrypt { 1i64 } else { 0i64 })
+    .bind(&dest.encrypt_password_enc)
+    .bind(&dest.encrypt_salt)
     .bind(&dest.id)
     .execute(pool)
     .await?;
@@ -428,7 +440,7 @@ pub async fn get_destinations_for_source(
     source_id: &str,
 ) -> anyhow::Result<Vec<Destination>> {
     let rows = sqlx::query(
-        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json
+        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt
          FROM destinations WHERE source_id = ? ORDER BY id ASC"
     )
     .bind(source_id)
@@ -464,6 +476,9 @@ pub async fn get_destinations_for_source(
         let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
         let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
         let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
+        let encrypt_int: i64 = row.try_get("encrypt").unwrap_or(0);
+        let encrypt_password_enc: Option<String> = row.try_get("encrypt_password_enc").unwrap_or(None);
+        let encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
 
         destinations.push(Destination {
             id,
@@ -481,6 +496,9 @@ pub async fn get_destinations_for_source(
             cloud_config,
             sftp_config,
             oauth_config,
+            encrypt: encrypt_int != 0,
+            encrypt_password_enc,
+            encrypt_salt,
         });
     }
 
@@ -495,7 +513,7 @@ pub async fn get_all_active_destinations(
             s.id as s_id, s.name as s_name, s.path as s_path, s.source_type, s.enabled as s_enabled, s.created_at,
             d.id as d_id, d.source_id, d.path as d_path, d.schedule_json, d.retention_json, d.exclusions_json,
             d.enabled as d_enabled, d.incremental, d.last_run, d.last_status, d.next_run,
-            d.destination_type, d.cloud_config_json
+            d.destination_type, d.cloud_config_json, d.encrypt, d.encrypt_password_enc, d.encrypt_salt
          FROM sources s
          JOIN destinations d ON d.source_id = s.id
          WHERE s.enabled = 1 AND d.enabled = 1"
@@ -552,6 +570,10 @@ pub async fn get_all_active_destinations(
             destinations: vec![],
         };
 
+        let d_encrypt_int: i64 = row.try_get("encrypt").unwrap_or(0);
+        let d_encrypt_password_enc: Option<String> = row.try_get("encrypt_password_enc").unwrap_or(None);
+        let d_encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
+
         let destination = Destination {
             id: d_id,
             source_id,
@@ -568,6 +590,9 @@ pub async fn get_all_active_destinations(
             cloud_config,
             sftp_config,
             oauth_config,
+            encrypt: d_encrypt_int != 0,
+            encrypt_password_enc: d_encrypt_password_enc,
+            encrypt_salt: d_encrypt_salt,
         };
 
         result.push((source, destination));

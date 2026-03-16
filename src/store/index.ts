@@ -11,7 +11,7 @@ interface AppStore {
   runningJobs: Set<string>;
   isLoading: boolean;
   activeSourceId: string | null;
-  activePage: "dashboard" | "sources" | "logs" | "settings" | "license";
+  activePage: "dashboard" | "sources" | "logs" | "settings" | "license" | "vault";
   watcherWarning: string | null;
   licenseStatus: "checking" | "valid" | "invalid";
   sidebarCollapsed: boolean;

@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, onMount, onCleanup, Show } from "solid-js";
 import {
   TbOutlineCrown,
   TbOutlineCheck,
@@ -8,8 +8,9 @@ import {
   TbOutlineKey,
   TbOutlineDeviceDesktopOff,
 } from "solid-icons/tb";
+import { listen } from "@tauri-apps/api/event";
 import { toast } from "solid-sonner";
-import { store, activateLicense, deactivateLicense } from "../store";
+import { store, activateLicense, deactivateLicense, initLicense } from "../store";
 import { api } from "../api/tauri";
 import { t, ti } from "../i18n";
 import styles from "./LicensePage.module.css";
@@ -42,6 +43,12 @@ export function LicensePage() {
     } catch {
       setHardwareId("—");
     }
+
+    const unlisten = await listen("license-activated", async () => {
+      await initLicense();
+      toast.success(t("lic_activated"));
+    });
+    onCleanup(unlisten);
   });
 
   const isLicensed = () => store.licenseStatus === "valid";

@@ -1,5 +1,7 @@
 import { createSignal, For, Show } from "solid-js";
-import { TbOutlineFolder, TbOutlineFile, TbOutlineArchive } from "solid-icons/tb";
+import { TbOutlineFolder, TbOutlineFile, TbOutlineArchive, TbOutlineDotsVertical, TbOutlinePlayerPlay, TbOutlineEye, TbOutlinePencil, TbOutlineTrash, TbOutlineFolderOpen, TbOutlineLock, TbOutlineLockOpen } from "solid-icons/tb";
+import { toast } from "solid-sonner";
+import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { Toggle } from "../ui/Toggle";
@@ -59,6 +61,11 @@ export function DestinationList(props: Props) {
   const [editingDest, setEditingDest] = createSignal<Destination | null>(null);
   const [previewDestId, setPreviewDestId] = createSignal<string | null>(null);
   const [showUpgrade, setShowUpgrade] = createSignal(false);
+  const [openMenuId, setOpenMenuId] = createSignal<string | null>(null);
+  const [decryptDest, setDecryptDest] = createSignal<Destination | null>(null);
+  const [decryptFolder, setDecryptFolder] = createSignal("");
+  const [decryptPassword, setDecryptPassword] = createSignal("");
+  const [decrypting, setDecrypting] = createSignal(false);
 
   const isLicensed = () => store.licenseStatus === "valid";
   const atDestLimit = () => !isLicensed() && props.source.destinations.length >= 1;
@@ -69,6 +76,7 @@ export function DestinationList(props: Props) {
   };
 
   const handleRunNow = async (destId: string) => {
+    setOpenMenuId(null);
     setRunningId(destId);
     try { await api.jobs.runNow(destId); }
     catch { /* handled via events */ }
@@ -76,6 +84,7 @@ export function DestinationList(props: Props) {
   };
 
   const handleDelete = async (destId: string) => {
+    setOpenMenuId(null);
     if (!confirm(t("dest_delete_confirm"))) return;
     setDeletingId(destId);
     try { await api.destinations.delete(destId); props.onRefresh(); }
@@ -87,17 +96,64 @@ export function DestinationList(props: Props) {
     catch { /* ignore */ }
   };
 
+  const handleOpenFolder = (path: string) => {
+    setOpenMenuId(null);
+    api.fs.openPath(path).catch(() => {});
+  };
+
+  const handleDecryptOpen = (dest: Destination) => {
+    setOpenMenuId(null);
+    setDecryptDest(dest);
+    setDecryptFolder(dest.path);
+    setDecryptPassword("");
+  };
+
+  const handleDecryptSubmit = async () => {
+    const dest = decryptDest();
+    if (!dest || !decryptPassword().trim()) return;
+    setDecrypting(true);
+    try {
+      const folder = await api.fs.pickDirectory() ?? dest.path;
+      if (!folder) { setDecrypting(false); return; }
+      const count = await api.destinations.decryptBackup(folder, decryptPassword().trim());
+      toast.success(t("dest_decrypt_success").replace("{n}", String(count)));
+      setDecryptDest(null);
+    } catch (e: any) {
+      toast.error(t("dest_decrypt_error") + ": " + String(e));
+    } finally { setDecrypting(false); }
+  };
+
+  // Close menu when clicking outside
+  const handleDocClick = (e: MouseEvent) => {
+    const target = e.target as Element;
+    if (!target.closest(`.${styles.menuWrapper}`)) {
+      setOpenMenuId(null);
+    }
+  };
+
   return (
-    <div class={styles.panel}>
+    <div class={styles.panel} onClick={handleDocClick}>
       <div class={styles.header}>
         <div class={styles.headerLeft}>
-          <span class={styles.headerIcon}>{props.source.source_type === "Directory" ? <TbOutlineFolder size={16} /> : <TbOutlineFile size={16} />}</span>
+          <span class={styles.headerIcon} style={{ color: "var(--text-secondary)" }}>
+            {props.source.source_type === "Directory" ? <TbOutlineFolder size={16} /> : <TbOutlineFile size={16} />}
+          </span>
           <div>
             <div class={styles.sourceName}>{props.source.name}</div>
             <div class={styles.sourcePath}>{props.source.path}</div>
           </div>
         </div>
-        <Button size="sm" onClick={handleAddDestination}>{t("dest_add")}</Button>
+        <div class={styles.headerRight}>
+          <button
+            class={styles.openFolderBtn}
+            title={t("open_src_folder")}
+            onClick={() => handleOpenFolder(props.source.path)}
+          >
+            <TbOutlineFolderOpen size={14} />
+            <span>{t("open_src_folder")}</span>
+          </button>
+          <Button size="sm" onClick={handleAddDestination}>{t("dest_add")}</Button>
+        </div>
       </div>
 
       <div class={styles.list}>
@@ -112,6 +168,7 @@ export function DestinationList(props: Props) {
         <For each={props.source.destinations}>
           {(dest) => {
             const isRunning = () => props.runningJobs.has(dest.id) || runningId() === dest.id;
+            const menuOpen = () => openMenuId() === dest.id;
             return (
               <div class={styles.card}>
                 <Show when={store.copyProgress[dest.id]}>
@@ -133,7 +190,14 @@ export function DestinationList(props: Props) {
                 </Show>
                 <div class={styles.cardTop}>
                   <div class={styles.cardInfo}>
-                    <div class={styles.destPath}>{dest.path}</div>
+                    <div class={styles.destPath}>
+                      {dest.path}
+                      <Show when={dest.encrypt}>
+                        <span title={t("dest_encrypt_label")} style={{ "margin-left": "6px", color: "var(--text-secondary)", display: "inline-flex", "vertical-align": "middle" }}>
+                          <TbOutlineLock size={13} />
+                        </span>
+                      </Show>
+                    </div>
                     <div class={styles.metaRow}>
                       <span class={styles.metaItem}>
                         <span class={styles.metaLabel}>{t("dest_schedule_label")} </span>{scheduleLabel(dest)}
@@ -152,25 +216,51 @@ export function DestinationList(props: Props) {
                         {isRunning() ? t("status_running") : statusLabel(dest.last_status)}
                       </Badge>
                     </Show>
+                    <div class={styles.menuWrapper}>
+                      <button
+                        class={styles.menuBtn}
+                        title="Menü"
+                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(menuOpen() ? null : dest.id); }}
+                      >
+                        <TbOutlineDotsVertical size={16} />
+                      </button>
+                      <Show when={menuOpen()}>
+                        <div class={styles.dropdown} onClick={(e) => e.stopPropagation()}>
+                          <button class={styles.dropItem} onClick={() => handleRunNow(dest.id)} disabled={isRunning()}>
+                            <TbOutlinePlayerPlay size={14} />
+                            {isRunning() ? t("btn_running") : t("btn_run_now")}
+                          </button>
+                          <button class={styles.dropItem} onClick={() => { setOpenMenuId(null); setPreviewDestId(dest.id); }}>
+                            <TbOutlineEye size={14} />
+                            {t("dest_preview")}
+                          </button>
+                          <button class={styles.dropItem} onClick={() => handleOpenFolder(dest.path)}>
+                            <TbOutlineFolderOpen size={14} />
+                            {t("open_dest_folder")}
+                          </button>
+                          <button class={styles.dropItem} onClick={() => { setOpenMenuId(null); setEditingDest(dest); }}>
+                            <TbOutlinePencil size={14} />
+                            {t("btn_edit")}
+                          </button>
+                          <Show when={dest.encrypt && dest.destination_type === "Local"}>
+                            <button class={styles.dropItem} onClick={() => handleDecryptOpen(dest)}>
+                              <TbOutlineLockOpen size={14} />
+                              {t("dest_decrypt_btn")}
+                            </button>
+                          </Show>
+                          <div class={styles.dropDivider} />
+                          <button class={`${styles.dropItem} ${styles.dropItemDanger}`} onClick={() => handleDelete(dest.id)} disabled={deletingId() === dest.id}>
+                            <TbOutlineTrash size={14} />
+                            {t("btn_delete")}
+                          </button>
+                        </div>
+                      </Show>
+                    </div>
                   </div>
                 </div>
                 <div class={styles.cardFooter}>
                   <Toggle value={dest.enabled} onChange={() => handleToggleEnabled(dest)}
                     label={dest.enabled ? t("status_active") : t("status_disabled")} />
-                  <div class={styles.footerButtons}>
-                    <Button variant="ghost" size="sm" onClick={() => handleRunNow(dest.id)} disabled={isRunning()}>
-                      {isRunning() ? t("btn_running") : t("btn_run_now")}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setPreviewDestId(dest.id)}>
-                      {t("dest_preview")}
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setEditingDest(dest)}>
-                      {t("btn_edit")}
-                    </Button>
-                    <Button variant="danger" size="sm" onClick={() => handleDelete(dest.id)} disabled={deletingId() === dest.id}>
-                      {t("btn_delete")}
-                    </Button>
-                  </div>
                 </div>
               </div>
             );
@@ -197,6 +287,37 @@ export function DestinationList(props: Props) {
         sourceCount={0}
         subtitle={t("pro_dest_sub")}
       />
+
+      <Modal
+        open={decryptDest() !== null}
+        onClose={() => setDecryptDest(null)}
+        title={t("dest_decrypt_modal_title")}
+        footer={
+          <div style={{ display: "flex", gap: "8px", "justify-content": "flex-end" }}>
+            <button onClick={() => setDecryptDest(null)} style={{ padding: "6px 12px", cursor: "pointer" }}>{t("btn_cancel")}</button>
+            <button onClick={handleDecryptSubmit} disabled={decrypting()} style={{ padding: "6px 12px", cursor: "pointer" }}>
+              {decrypting() ? "..." : t("dest_decrypt_btn")}
+            </button>
+          </div>
+        }
+      >
+        <div style={{ display: "flex", "flex-direction": "column", gap: "12px" }}>
+          <div>
+            <label style={{ "font-size": "0.85rem", "margin-bottom": "4px", display: "block" }}>{t("dest_decrypt_password")}</label>
+            <input
+              type="password"
+              value={decryptPassword()}
+              onInput={(e) => setDecryptPassword(e.currentTarget.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleDecryptSubmit(); }}
+              style={{ width: "100%", padding: "6px 8px", "box-sizing": "border-box" }}
+              autofocus
+            />
+          </div>
+          <div style={{ "font-size": "0.8rem", color: "var(--text-secondary)" }}>
+            {t("dest_decrypt_folder")}: {decryptDest()?.path}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

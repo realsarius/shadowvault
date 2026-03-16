@@ -65,6 +65,8 @@ export function AddDestinationModal(props: Props) {
   const [naming, setNaming] = createSignal<"Timestamp" | "Index" | "Overwrite">("Timestamp");
   const [exclusionsText, setExclusionsText] = createSignal("");
   const [incremental, setIncremental] = createSignal(false);
+  const [encrypt, setEncrypt] = createSignal(false);
+  const [encryptPassword, setEncryptPassword] = createSignal("");
   const [saving, setSaving] = createSignal(false);
   const [showUpgrade, setShowUpgrade] = createSignal(false);
   const isLicensed = () => store.licenseStatus === "valid";
@@ -86,6 +88,7 @@ export function AddDestinationModal(props: Props) {
     setOauthConfig(null); setOauthStatus("idle"); setOauthError("");
     setSchedule({ type: "Interval", value: { minutes: 60 } });
     setMaxVersions(10); setNaming("Timestamp"); setExclusionsText(""); setIncremental(false);
+    setEncrypt(false); setEncryptPassword("");
     setSaving(false);
   };
 
@@ -159,7 +162,8 @@ export function AddDestinationModal(props: Props) {
 
       if (destType() === "Local") {
         if (!destPath().trim()) { toast.error(t("add_dest_path_req")); setSaving(false); return; }
-        await api.destinations.add(props.sourceId, destPath(), schedule(), retention(), exclusions, incremental(), "Local", null, null);
+        if (encrypt() && !encryptPassword().trim()) { toast.error(t("dest_encrypt_password")); setSaving(false); return; }
+        await api.destinations.add(props.sourceId, destPath(), schedule(), retention(), exclusions, incremental(), "Local", null, null, null, encrypt(), encrypt() ? encryptPassword().trim() : null);
       } else if (destType() === "Sftp") {
         if (!sftpHost().trim() || !sftpUsername().trim()) { toast.error(t("sftp_fields_required")); setSaving(false); return; }
         const sftpConfig: SftpConfig = {
@@ -512,6 +516,26 @@ export function AddDestinationModal(props: Props) {
         <Toggle value={incremental()} onChange={setIncremental} label={t("add_dest_incremental")} />
         <div class={styles.hint}>{t("add_dest_incremental_desc")}</div>
       </div>
+
+      <Show when={destType() === "Local"}>
+        <div class={styles.field}>
+          <Toggle value={encrypt()} onChange={setEncrypt} label={t("dest_encrypt_label")} />
+          <div class={styles.hint}>{t("dest_encrypt_desc")}</div>
+        </div>
+        <Show when={encrypt()}>
+          <div class={styles.field}>
+            <label class={styles.label}>{t("dest_encrypt_password")}</label>
+            <input
+              class={styles.input}
+              type="password"
+              placeholder={t("dest_encrypt_password_placeholder")}
+              value={encryptPassword()}
+              onInput={(e) => setEncryptPassword(e.currentTarget.value)}
+            />
+            <div class={styles.hint}>{t("dest_encrypt_password_hint")}</div>
+          </div>
+        </Show>
+      </Show>
 
       <div class={styles.field}>
         <label class={styles.label}>{t("add_dest_exclusions")}</label>

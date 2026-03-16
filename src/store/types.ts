@@ -60,6 +60,7 @@ export interface Destination {
   cloud_config: S3Config | null;
   sftp_config: SftpConfig | null;
   oauth_config: OAuthConfig | null;
+  encrypt: boolean;
 }
 
 export interface Source {
@@ -127,4 +128,28 @@ export interface CopyProgress {
   files_done: number;
   files_total: number;
   bytes_done: number;
+}
+
+// ─── Vault ──────────────────────────────────────────────────────────────────
+
+export type VaultEntryKind = "File" | "Directory";
+
+export interface VaultEntry {
+  id: string;
+  name: string;
+  parent_id: string | null;
+  kind: VaultEntryKind;
+  size: number | null;
+  modified: string | null;
+  nonce: string | null;
+}
+
+export interface VaultSummary {
+  id: string;
+  name: string;
+  algorithm: string;
+  vault_path: string;
+  created_at: string;
+  last_opened: string | null;
+  unlocked: boolean;
 }

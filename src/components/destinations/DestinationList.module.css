@@ -23,8 +23,36 @@
   gap: 8px;
 }
 
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .headerIcon {
   font-size: 16px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+}
+
+.openFolderBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.openFolderBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-focus);
 }
 
 .sourceName {
@@ -125,9 +153,80 @@
   border-top: 1px solid var(--border);
 }
 
-.footerButtons {
+/* ── Kebab / three-dots menu ── */
+.menuWrapper {
+  position: relative;
+}
+
+.menuBtn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
-  gap: 6px;
+  align-items: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.menuBtn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  z-index: 200;
+  padding: 4px;
+  animation: dropIn 120ms ease-out;
+}
+
+@keyframes dropIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.dropItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.dropItem:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.dropItem:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.dropItemDanger {
+  color: var(--red);
+}
+
+.dropDivider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
 }
 
 .progressBar {

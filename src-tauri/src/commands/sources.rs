@@ -10,6 +10,42 @@ use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType,
 use crate::models::schedule::{Schedule, RetentionPolicy};
 use crate::db::queries;
 
+fn encrypt_password_for_storage(password: &str) -> anyhow::Result<(String, String)> {
+    use rand::RngCore;
+    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+    use sysinfo::System;
+    use sha2::{Sha256, Digest};
+    use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm, Key};
+
+    // Generate random 32-byte Argon2id salt
+    let mut salt_bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut salt_bytes);
+    let salt_b64 = BASE64.encode(salt_bytes);
+
+    // Encrypt the password with HW key
+    let hw_raw = {
+        let mut sys = System::new();
+        sys.refresh_memory();
+        let hostname = System::host_name().unwrap_or_else(|| "unknown-host".to_string());
+        format!("shadowvault:{}:{}:{}", hostname, sys.total_memory(), sys.cpus().len())
+    };
+    let key_bytes: [u8; 32] = {
+        let mut hasher = Sha256::new();
+        hasher.update(hw_raw.as_bytes());
+        hasher.finalize().into()
+    };
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let ciphertext = cipher.encrypt(&nonce, password.as_bytes())
+        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    let mut combined = nonce.to_vec();
+    combined.extend(ciphertext);
+    let enc = BASE64.encode(combined);
+
+    Ok((enc, salt_b64))
+}
+
 #[tauri::command]
 pub async fn get_sources(state: State<'_, AppState>) -> Result<Vec<Source>, String> {
     queries::get_all_sources(&state.db)
@@ -108,6 +144,8 @@ pub async fn add_destination(
     cloud_config: Option<Value>,
     sftp_config: Option<Value>,
     oauth_config: Option<Value>,
+    encrypt: Option<bool>,
+    encrypt_password: Option<String>,
 ) -> Result<Destination, String> {
     let schedule: Schedule = serde_json::from_value(schedule).map_err(|e| e.to_string())?;
     let retention: RetentionPolicy =
@@ -131,6 +169,19 @@ pub async fn add_destination(
         oauth_config.and_then(|v| serde_json::from_value(v).ok())
     } else { None };
 
+    let do_encrypt = encrypt.unwrap_or(false);
+    let (enc_password, enc_salt) = if do_encrypt {
+        match encrypt_password.as_deref() {
+            Some(pwd) if !pwd.is_empty() => {
+                let (enc, salt) = encrypt_password_for_storage(pwd).map_err(|e| e.to_string())?;
+                (Some(enc), Some(salt))
+            }
+            _ => (None, None),
+        }
+    } else {
+        (None, None)
+    };
+
     let dest = Destination {
         id: Uuid::new_v4().to_string(),
         source_id,
@@ -147,6 +198,9 @@ pub async fn add_destination(
         cloud_config: cloud_cfg,
         sftp_config: sftp_cfg,
         oauth_config: oauth_cfg,
+        encrypt: do_encrypt,
+        encrypt_password_enc: enc_password,
+        encrypt_salt: enc_salt,
     };
 
     queries::insert_destination(&state.db, &dest)
@@ -179,10 +233,12 @@ pub async fn update_destination(
     cloud_config: Option<Value>,
     sftp_config: Option<Value>,
     oauth_config: Option<Value>,
+    encrypt: Option<bool>,
+    encrypt_password: Option<String>,
 ) -> Result<(), String> {
     // Fetch existing row to preserve source_id and run metadata
     let dest_row = sqlx::query(
-        "SELECT id, source_id, last_run, last_status, next_run, exclusions_json, incremental FROM destinations WHERE id = ?",
+        "SELECT id, source_id, last_run, last_status, next_run, exclusions_json, incremental, encrypt, encrypt_password_enc, encrypt_salt FROM destinations WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(state.db.as_ref())
@@ -199,6 +255,9 @@ pub async fn update_destination(
     let existing_exclusions_json: String =
         dest_row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
     let existing_incremental: i64 = dest_row.try_get("incremental").unwrap_or(0);
+    let existing_encrypt: i64 = dest_row.try_get("encrypt").unwrap_or(0);
+    let existing_encrypt_password_enc: Option<String> = dest_row.try_get("encrypt_password_enc").unwrap_or(None);
+    let existing_encrypt_salt: Option<String> = dest_row.try_get("encrypt_salt").unwrap_or(None);
 
     let schedule_parsed: Schedule =
         serde_json::from_value(schedule).map_err(|e| e.to_string())?;
@@ -238,6 +297,24 @@ pub async fn update_destination(
 
     let is_onchange = matches!(schedule_parsed, Schedule::OnChange);
 
+    // Resolve encryption fields: if a new password is provided, re-encrypt; otherwise preserve existing
+    let resolved_encrypt = encrypt.unwrap_or(existing_encrypt != 0);
+    let (resolved_enc_password, resolved_enc_salt) = if resolved_encrypt {
+        match encrypt_password.as_deref() {
+            Some(pwd) if !pwd.is_empty() => {
+                // New password provided — re-encrypt
+                let (enc, salt) = encrypt_password_for_storage(pwd).map_err(|e| e.to_string())?;
+                (Some(enc), Some(salt))
+            }
+            _ => {
+                // Keep existing password/salt
+                (existing_encrypt_password_enc, existing_encrypt_salt)
+            }
+        }
+    } else {
+        (None, None)
+    };
+
     let dest = Destination {
         id: id.clone(),
         source_id,
@@ -254,6 +331,9 @@ pub async fn update_destination(
         cloud_config: cloud_cfg,
         sftp_config: sftp_cfg,
         oauth_config: oauth_cfg,
+        encrypt: resolved_encrypt,
+        encrypt_password_enc: resolved_enc_password,
+        encrypt_salt: resolved_enc_salt,
     };
 
     // Cancel existing scheduled task; re-added on next reload

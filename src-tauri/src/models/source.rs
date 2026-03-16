@@ -117,6 +117,15 @@ pub struct Destination {
     pub sftp_config: Option<SftpConfig>,
     #[serde(default)]
     pub oauth_config: Option<OAuthConfig>,
+    /// Whether files at the destination should be AES-256-GCM encrypted
+    #[serde(default)]
+    pub encrypt: bool,
+    /// AES-GCM encrypted backup password (hardware-ID key); never sent to frontend
+    #[serde(skip_serializing, default)]
+    pub encrypt_password_enc: Option<String>,
+    /// Base64 Argon2id salt; never sent to frontend
+    #[serde(skip_serializing, default)]
+    pub encrypt_salt: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

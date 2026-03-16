@@ -206,6 +206,9 @@ async fn apply_import(
                 cloud_config: None,
                 sftp_config: None,
                 oauth_config: None,
+                encrypt: false,
+                encrypt_password_enc: None,
+                encrypt_salt: None,
             };
             queries::insert_destination(db, &dest).await?;
             destinations_imported += 1;
