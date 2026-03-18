@@ -15,21 +15,12 @@ import { toast } from "solid-sonner";
 import { store, activateLicense, deactivateLicense, initLicense } from "../store";
 import { api } from "../api/tauri";
 import { t, ti } from "../i18n";
+import { LICENSE_KEY_PATTERN, formatLicenseKeyInput } from "../utils/licenseKey";
 import styles from "./LicensePage.module.css";
 
 const FREE_LIMIT = 3;
-const KEY_PATTERN = /^SV-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
 
 import { BUY_URL } from "../constants";
-
-function formatKeyInput(raw: string): string {
-  const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const parts: string[] = [];
-  for (let i = 0; i < Math.min(clean.length, 16); i += 4) {
-    parts.push(clean.slice(i, i + 4));
-  }
-  return parts.length > 0 ? "SV-" + parts.join("-") : "";
-}
 
 export function LicensePage() {
   const [key, setKey] = createSignal("");
@@ -59,7 +50,7 @@ export function LicensePage() {
 
   const handleInput = (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;
-    const formatted = formatKeyInput(input.value);
+    const formatted = formatLicenseKeyInput(input.value);
     setKey(formatted);
     requestAnimationFrame(() => {
       input.value = formatted;
@@ -69,7 +60,7 @@ export function LicensePage() {
 
   const handleActivate = async () => {
     const k = key().trim();
-    if (!KEY_PATTERN.test(k)) {
+    if (!LICENSE_KEY_PATTERN.test(k)) {
       toast.error(t("lic_key_invalid"));
       return;
     }
@@ -253,7 +244,7 @@ export function LicensePage() {
 
               <button
                 class={styles.activateBtn}
-                disabled={!KEY_PATTERN.test(key().trim()) || loading()}
+                disabled={!LICENSE_KEY_PATTERN.test(key().trim()) || loading()}
                 onClick={handleActivate}
               >
                 {loading() ? t("lic_btn_activating") : t("lic_btn_activate")}

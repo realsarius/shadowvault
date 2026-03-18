@@ -4,19 +4,10 @@ import { Modal } from "../components/ui/Modal";
 import { Button } from "../components/ui/Button";
 import { api } from "../api/tauri";
 import { activateLicense } from "../store";
+import { LICENSE_KEY_PATTERN, formatLicenseKeyInput } from "../utils/licenseKey";
 import styles from "./License.module.css";
 
 const FREE_LIMIT = 3;
-const KEY_PATTERN = /^SV-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
-
-function formatKeyInput(raw: string): string {
-  const clean = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
-  const parts: string[] = [];
-  for (let i = 0; i < Math.min(clean.length, 16); i += 4) {
-    parts.push(clean.slice(i, i + 4));
-  }
-  return parts.length > 0 ? "SV-" + parts.join("-") : "";
-}
 
 interface Props {
   open: boolean;
@@ -41,7 +32,7 @@ export function UpgradeModal(props: Props) {
 
   const handleInput = (e: Event) => {
     const input = e.currentTarget as HTMLInputElement;
-    const formatted = formatKeyInput(input.value);
+    const formatted = formatLicenseKeyInput(input.value);
     setKey(formatted);
     requestAnimationFrame(() => {
       input.value = formatted;
@@ -52,7 +43,7 @@ export function UpgradeModal(props: Props) {
 
   const handleActivate = async () => {
     const k = key().trim();
-    if (!KEY_PATTERN.test(k)) {
+    if (!LICENSE_KEY_PATTERN.test(k)) {
       setError("Geçersiz format. Beklenen: SV-XXXX-XXXX-XXXX-XXXX");
       return;
     }
@@ -67,7 +58,7 @@ export function UpgradeModal(props: Props) {
     }
   };
 
-  const isValid = () => KEY_PATTERN.test(key().trim());
+  const isValid = () => LICENSE_KEY_PATTERN.test(key().trim());
 
   return (
     <Modal
