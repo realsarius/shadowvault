@@ -39,6 +39,35 @@ describe("api layer", () => {
     expect(count).toBe(5);
   });
 
+  it("api.logs.count passes filters", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(10);
+    const total = await api.logs.count({ sourceId: "src-1", status: "Failed", searchText: "disk full" });
+    expect(invoke).toHaveBeenCalledWith("get_log_count", {
+      sourceId: "src-1",
+      status: "Failed",
+      searchText: "disk full",
+    });
+    expect(total).toBe(10);
+  });
+
+  it("api.logs.deleteEntry passes logId", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce(1);
+    const deleted = await api.logs.deleteEntry(42);
+    expect(invoke).toHaveBeenCalledWith("delete_log_entry", { logId: 42 });
+    expect(deleted).toBe(1);
+  });
+
+  it("api.logs.export passes format and filters", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce("/tmp/shadowvault-logs.csv");
+    const path = await api.logs.export("csv", { status: "Failed", sourceId: "src-1" });
+    expect(invoke).toHaveBeenCalledWith("export_logs", {
+      format: "csv",
+      status: "Failed",
+      sourceId: "src-1",
+    });
+    expect(path).toBe("/tmp/shadowvault-logs.csv");
+  });
+
   it("api.updater.check calls check_update", async () => {
     vi.mocked(invoke).mockResolvedValueOnce({ available: false, version: null, body: null });
     const info = await api.updater.check();

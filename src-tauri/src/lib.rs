@@ -1,24 +1,24 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
-use tokio::sync::Mutex;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
-use tauri::Manager;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 use tauri::Emitter;
+use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
+use tokio::sync::Mutex;
 use vault::session::SessionStore;
 
-pub mod models;
-pub mod db;
 pub mod commands;
+pub mod crypto_utils;
+pub mod db;
 pub mod engine;
-pub mod tray;
 pub mod icons_gen;
 pub mod menu;
+pub mod models;
 pub mod notifications;
+pub mod tray;
 pub mod vault;
-pub mod crypto_utils;
 
 use engine::scheduler::Scheduler;
 use engine::watcher::FileWatcher;
@@ -34,71 +34,73 @@ pub struct AppState {
 }
 
 pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
-    tauri_specta::Builder::<tauri::Wry>::new()
-        .commands(tauri_specta::collect_commands![
-            commands::sources::get_sources,
-            commands::sources::create_source,
-            commands::sources::update_source,
-            commands::sources::delete_source,
-            // add_destination / update_destination excluded: >10 params (specta limit)
-            commands::sources::delete_destination,
-            commands::jobs::run_now,
-            commands::jobs::run_source_now,
-            commands::jobs::pause_all,
-            commands::jobs::resume_all,
-            commands::logs::get_logs,
-            commands::logs::get_log_count,
-            commands::logs::clear_old_logs,
-            commands::settings::get_settings,
-            commands::settings::update_settings,
-            commands::settings::get_setting_value,
-            commands::settings::set_setting_value,
-            commands::settings::get_schema_version,
-            commands::fs::pick_directory,
-            commands::fs::pick_file,
-            commands::fs::get_disk_info,
-            commands::fs::check_path_type,
-            commands::fs::open_path,
-            commands::updater::check_update,
-            commands::updater::install_update,
-            commands::license::get_hardware_id,
-            commands::license::activate_license,
-            commands::license::validate_license,
-            commands::license::store_license,
-            commands::license::get_stored_license,
-            commands::license::clear_license,
-            commands::license::deactivate_license,
-            commands::restore::restore_backup,
-            commands::config::export_config,
-            commands::config::import_config,
-            commands::notifications::send_test_email,
-            commands::preview::preview_backup,
-            commands::cloud::test_cloud_connection,
-            commands::cloud::test_sftp_connection,
-            commands::cloud::test_webdav_connection,
-            commands::oauth::run_oauth_flow,
-            commands::oauth::test_oauth_connection,
-            commands::vault::create_vault,
-            commands::vault::list_vaults,
-            commands::vault::unlock_vault,
-            commands::vault::lock_vault,
-            commands::vault::list_entries,
-            commands::vault::import_file_cmd,
-            commands::vault::import_directory_cmd,
-            commands::vault::export_file_cmd,
-            commands::vault::open_file_cmd,
-            commands::vault::rename_entry_cmd,
-            commands::vault::move_entry_cmd,
-            commands::vault::delete_entry_cmd,
-            commands::vault::create_directory_cmd,
-            commands::vault::get_thumbnail,
-            commands::vault::delete_vault,
-            commands::vault::change_vault_password,
-            commands::vault::get_open_files,
-            commands::vault::sync_and_lock_vault,
-            commands::backup_decrypt::decrypt_backup,
-            rebuild_app_menu,
-        ])
+    tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+        commands::sources::get_sources,
+        commands::sources::create_source,
+        commands::sources::update_source,
+        commands::sources::delete_source,
+        // add_destination / update_destination excluded: >10 params (specta limit)
+        commands::sources::delete_destination,
+        commands::jobs::run_now,
+        commands::jobs::run_source_now,
+        commands::jobs::pause_all,
+        commands::jobs::resume_all,
+        commands::logs::get_logs,
+        commands::logs::get_log_count,
+        commands::logs::clear_old_logs,
+        commands::logs::delete_log_entry,
+        commands::logs::clear_logs,
+        commands::logs::export_logs,
+        commands::settings::get_settings,
+        commands::settings::update_settings,
+        commands::settings::get_setting_value,
+        commands::settings::set_setting_value,
+        commands::settings::get_schema_version,
+        commands::fs::pick_directory,
+        commands::fs::pick_file,
+        commands::fs::get_disk_info,
+        commands::fs::check_path_type,
+        commands::fs::open_path,
+        commands::updater::check_update,
+        commands::updater::install_update,
+        commands::license::get_hardware_id,
+        commands::license::activate_license,
+        commands::license::validate_license,
+        commands::license::store_license,
+        commands::license::get_stored_license,
+        commands::license::clear_license,
+        commands::license::deactivate_license,
+        commands::restore::restore_backup,
+        commands::config::export_config,
+        commands::config::import_config,
+        commands::notifications::send_test_email,
+        commands::preview::preview_backup,
+        commands::cloud::test_cloud_connection,
+        commands::cloud::test_sftp_connection,
+        commands::cloud::test_webdav_connection,
+        commands::oauth::run_oauth_flow,
+        commands::oauth::test_oauth_connection,
+        commands::vault::create_vault,
+        commands::vault::list_vaults,
+        commands::vault::unlock_vault,
+        commands::vault::lock_vault,
+        commands::vault::list_entries,
+        commands::vault::import_file_cmd,
+        commands::vault::import_directory_cmd,
+        commands::vault::export_file_cmd,
+        commands::vault::open_file_cmd,
+        commands::vault::rename_entry_cmd,
+        commands::vault::move_entry_cmd,
+        commands::vault::delete_entry_cmd,
+        commands::vault::create_directory_cmd,
+        commands::vault::get_thumbnail,
+        commands::vault::delete_vault,
+        commands::vault::change_vault_password,
+        commands::vault::get_open_files,
+        commands::vault::sync_and_lock_vault,
+        commands::backup_decrypt::decrypt_backup,
+        rebuild_app_menu,
+    ])
 }
 
 pub fn run() {
@@ -130,22 +132,28 @@ pub fn run() {
 
             // Deep link handler: shadowvault://activate?key=SV-XXXX
             let ah_deeplink = app_handle.clone();
-            app.deep_link().on_open_url(move |event: tauri_plugin_deep_link::OpenUrlEvent| {
-                let urls = event.urls();
-                for url in &urls {
-                    if url.scheme() != "shadowvault" { continue; }
-                    if url.host_str() != Some("activate") { continue; }
-                    let key: Option<String> = url.query_pairs()
-                        .find(|(k, _)| k == "key")
-                        .map(|(_, v)| v.into_owned());
-                    if let Some(k) = key {
-                        let ah = ah_deeplink.clone();
-                        tauri::async_runtime::spawn(async move {
-                            handle_deep_link_activate(&ah, k).await;
-                        });
+            app.deep_link()
+                .on_open_url(move |event: tauri_plugin_deep_link::OpenUrlEvent| {
+                    let urls = event.urls();
+                    for url in &urls {
+                        if url.scheme() != "shadowvault" {
+                            continue;
+                        }
+                        if url.host_str() != Some("activate") {
+                            continue;
+                        }
+                        let key: Option<String> = url
+                            .query_pairs()
+                            .find(|(k, _)| k == "key")
+                            .map(|(_, v)| v.into_owned());
+                        if let Some(k) = key {
+                            let ah = ah_deeplink.clone();
+                            tauri::async_runtime::spawn(async move {
+                                handle_deep_link_activate(&ah, k).await;
+                            });
+                        }
                     }
-                }
-            });
+                });
 
             // Build initial menu (language resolved async after DB loads)
             if let Ok(m) = menu::build_menu(&app_handle, "tr") {
@@ -162,16 +170,23 @@ pub fn run() {
                                 log::warn!("Failed to create app data dir: {}", e);
                                 std::env::current_dir()
                                     .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                                    .join("shadowvault.db").to_string_lossy().to_string()
+                                    .join("shadowvault.db")
+                                    .to_string_lossy()
+                                    .to_string()
                             } else {
-                                data_dir.join("shadowvault.db").to_string_lossy().to_string()
+                                data_dir
+                                    .join("shadowvault.db")
+                                    .to_string_lossy()
+                                    .to_string()
                             }
                         }
                         Err(e) => {
                             log::warn!("Could not resolve app data dir: {}", e);
                             std::env::current_dir()
                                 .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                                .join("shadowvault.db").to_string_lossy().to_string()
+                                .join("shadowvault.db")
+                                .to_string_lossy()
+                                .to_string()
                         }
                     }
                 };
@@ -180,12 +195,18 @@ pub fn run() {
 
                 let pool = match db::init_db(&db_path).await {
                     Ok(p) => Arc::new(p),
-                    Err(e) => { log::error!("Failed to initialize database: {}", e); return; }
+                    Err(e) => {
+                        log::error!("Failed to initialize database: {}", e);
+                        return;
+                    }
                 };
 
                 // Rebuild menu with the stored language once DB is ready
-                let lang = db::queries::get_setting(&pool, "language").await
-                    .ok().flatten().unwrap_or_else(|| "tr".to_string());
+                let lang = db::queries::get_setting(&pool, "language")
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| "tr".to_string());
                 if lang != "tr" {
                     if let Ok(m) = menu::build_menu(&app_handle, &lang) {
                         let _ = app_handle.set_menu(m);
@@ -205,16 +226,32 @@ pub fn run() {
 
                 {
                     let mut sched = scheduler.lock().await;
-                    sched.reload_all(pool.clone(), running_jobs.clone(), app_handle.clone(), paused.clone()).await;
+                    sched
+                        .reload_all(
+                            pool.clone(),
+                            running_jobs.clone(),
+                            app_handle.clone(),
+                            paused.clone(),
+                        )
+                        .await;
                 }
 
                 {
                     let mut w = watcher.lock().await;
-                    w.start(pool.clone(), running_jobs.clone(), app_handle.clone()).await;
+                    w.start(pool.clone(), running_jobs.clone(), app_handle.clone())
+                        .await;
                 }
 
                 let last_manual_run: Arc<DashMap<String, Instant>> = Arc::new(DashMap::new());
-                app_handle.manage(AppState { db: pool, scheduler, watcher, running_jobs, paused, minimize_to_tray, last_manual_run });
+                app_handle.manage(AppState {
+                    db: pool,
+                    scheduler,
+                    watcher,
+                    running_jobs,
+                    paused,
+                    minimize_to_tray,
+                    last_manual_run,
+                });
                 app_handle.manage(Arc::new(SessionStore::new()));
             });
 
@@ -253,6 +290,9 @@ pub fn run() {
             commands::logs::get_logs,
             commands::logs::get_log_count,
             commands::logs::clear_old_logs,
+            commands::logs::delete_log_entry,
+            commands::logs::clear_logs,
+            commands::logs::export_logs,
             commands::settings::get_settings,
             commands::settings::update_settings,
             commands::settings::get_setting_value,
@@ -307,10 +347,9 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-
 /// Handles `shadowvault://activate?key=SV-XXXX` deep links from LemonSqueezy.
 async fn handle_deep_link_activate(app: &tauri::AppHandle, key: String) {
-    use commands::license::{activate_license_with_key};
+    use commands::license::activate_license_with_key;
 
     log::info!("Deep link activation for key: {}", &key[..key.len().min(8)]);
 
@@ -364,9 +403,7 @@ fn sync_open_vault_files(app: &tauri::AppHandle) {
         let files = guard.get_all_open_files();
         let keys = files
             .iter()
-            .filter_map(|(_, e)| {
-                guard.get_key(&e.vault_id).map(|k| (e.vault_id.clone(), k))
-            })
+            .filter_map(|(_, e)| guard.get_key(&e.vault_id).map(|k| (e.vault_id.clone(), k)))
             .collect();
         (files, keys)
     };
@@ -376,7 +413,13 @@ fn sync_open_vault_files(app: &tauri::AppHandle) {
             let algorithm = vault::fs::VaultMeta::load(&entry.vault_path, key)
                 .map(|m| m.algorithm)
                 .unwrap_or_else(|_| "AES-256-GCM".to_string());
-            if let Err(e) = reencrypt_from_temp(&entry.vault_path, &entry.entry_id, tmp_path, key, &algorithm) {
+            if let Err(e) = reencrypt_from_temp(
+                &entry.vault_path,
+                &entry.entry_id,
+                tmp_path,
+                key,
+                &algorithm,
+            ) {
                 log::warn!("Vault auto-sync failed for {}: {}", entry.file_name, e);
             }
         }
@@ -389,7 +432,10 @@ fn sync_open_vault_files(app: &tauri::AppHandle) {
         for (tmp_path, _) in &all_files {
             guard.unregister_open_file(tmp_path);
         }
-        log::info!("Vault auto-sync: {} file(s) saved before hide/close", all_files.len());
+        log::info!(
+            "Vault auto-sync: {} file(s) saved before hide/close",
+            all_files.len()
+        );
     }
 }
 

@@ -1,20 +1,27 @@
-import { createSignal, For, Show, createMemo } from "solid-js";
+import { createMemo, For, Show, createSignal } from "solid-js";
 import { toast } from "solid-sonner";
-import { TbOutlineClipboardList, TbOutlineShieldCheck, TbOutlineRestore } from "solid-icons/tb";
+import { TbOutlineClipboardList, TbOutlineRestore, TbOutlineShieldCheck, TbOutlineTrash } from "solid-icons/tb";
 import { Badge } from "../ui/Badge";
-import { t, ti } from "../../i18n";
 import { api } from "../../api/tauri";
-import type { LogEntry, Source, JobStatus } from "../../store/types";
+import { t, ti } from "../../i18n";
+import type { JobStatus, LogEntry, Source } from "../../store/types";
 import styles from "./LogPanel.module.css";
 
 interface Props {
   logs: LogEntry[];
   sources: Source[];
+  onDelete: (log: LogEntry) => Promise<void>;
 }
 
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString("tr-TR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function formatDuration(started: string, ended: string | null): string {
@@ -74,8 +81,6 @@ async function handleRestore(log: LogEntry) {
 }
 
 export function LogPanel(props: Props) {
-  const [filterSource, setFilterSource] = createSignal("all");
-  const [filterStatus, setFilterStatus] = createSignal("all");
   const [expandedId, setExpandedId] = createSignal<number | null>(null);
 
   const sourceMap = createMemo(() => {
@@ -84,41 +89,16 @@ export function LogPanel(props: Props) {
     return m;
   });
 
-  const filtered = createMemo(() =>
-    props.logs.filter((log) => {
-      if (filterSource() !== "all" && log.source_id !== filterSource()) return false;
-      if (filterStatus() !== "all" && log.status !== filterStatus()) return false;
-      return true;
-    })
-  );
-
   return (
     <div class={styles.root}>
-      <div class={styles.filters}>
-        <span class={styles.filterLabel}>{t("log_filter")}</span>
-        <select class={styles.select} value={filterSource()} onChange={(e) => setFilterSource(e.currentTarget.value)}>
-          <option value="all">{t("log_all_sources")}</option>
-          <For each={props.sources}>{(s) => <option value={s.id}>{s.name}</option>}</For>
-        </select>
-        <select class={styles.select} value={filterStatus()} onChange={(e) => setFilterStatus(e.currentTarget.value)}>
-          <option value="all">{t("log_all_statuses")}</option>
-          <option value="Success">{t("status_success")}</option>
-          <option value="Failed">{t("status_failed")}</option>
-          <option value="Running">{t("status_running")}</option>
-          <option value="Skipped">{t("status_skipped")}</option>
-          <option value="Cancelled">{t("status_cancelled")}</option>
-        </select>
-        <span class={styles.count}>{filtered().length} {t("log_records")}</span>
-      </div>
-
       <div class={styles.tableWrapper}>
-        <Show when={filtered().length === 0}>
+        <Show when={props.logs.length === 0}>
           <div class={styles.empty}>
             <div class={styles.emptyIcon}><TbOutlineClipboardList size={32} /></div>
             {t("log_empty")}
           </div>
         </Show>
-        <Show when={filtered().length > 0}>
+        <Show when={props.logs.length > 0}>
           <table class={styles.table}>
             <thead>
               <tr>
@@ -133,7 +113,7 @@ export function LogPanel(props: Props) {
               </tr>
             </thead>
             <tbody>
-              <For each={filtered()}>
+              <For each={props.logs}>
                 {(log) => {
                   const isExpanded = () => expandedId() === log.id;
                   const isExpandable = () => !!(log.error_message || log.checksum);
@@ -151,6 +131,9 @@ export function LogPanel(props: Props) {
                         <td class={styles.td}>{formatDuration(log.started_at, log.ended_at)}</td>
                         <td class={styles.td}>
                           {formatBytes(log.bytes_copied)}
+                          <Show when={log.files_copied !== null}>
+                            <span class={styles.filesBadge}>{log.files_copied} {t("log_files_short")}</span>
+                          </Show>
                           <Show when={log.checksum}>
                             <span class={styles.checksumBadge} title={log.checksum!}>
                               <TbOutlineShieldCheck size={12} /> {t("log_checksum_ok")}
@@ -158,11 +141,16 @@ export function LogPanel(props: Props) {
                           </Show>
                         </td>
                         <td class={styles.td} onClick={(e) => e.stopPropagation()}>
-                          <Show when={log.status === "Success"}>
-                            <button class={styles.restoreBtn} onClick={() => handleRestore(log)} title={t("log_restore")}>
-                              <TbOutlineRestore size={14} />
+                          <div class={styles.actions}>
+                            <Show when={log.status === "Success"}>
+                              <button class={styles.actionBtn} onClick={() => handleRestore(log)} title={t("log_restore")}>
+                                <TbOutlineRestore size={14} />
+                              </button>
+                            </Show>
+                            <button class={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => props.onDelete(log)} title={t("log_delete_one")}>
+                              <TbOutlineTrash size={14} />
                             </button>
-                          </Show>
+                          </div>
                         </td>
                       </tr>
                       <Show when={isExpanded()}>

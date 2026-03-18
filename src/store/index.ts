@@ -45,7 +45,7 @@ export async function refreshSources() {
 export async function refreshLogs(sourceId?: string) {
   const [logs, total] = await Promise.all([
     api.logs.get({ sourceId, limit: LOG_PAGE_SIZE, offset: 0 }),
-    api.logs.count(sourceId),
+    api.logs.count({ sourceId }),
   ]);
   setStore("logs", logs);
   setStore("logTotal", total);

@@ -1,18 +1,29 @@
-use sqlx::SqlitePool;
+use crate::crypto_utils::{hw_decrypt_json, hw_encrypt};
+use crate::models::schedule::{RetentionPolicy, Schedule};
+use crate::models::{
+    Destination, DestinationType, JobStatus, OAuthConfig, S3Config, SftpConfig, Source, SourceType,
+    WebDavConfig,
+};
 use chrono::{DateTime, Utc};
-use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig};
-use crate::models::schedule::{Schedule, RetentionPolicy};
-use crate::crypto_utils::{hw_encrypt, hw_decrypt_json};
+use sqlx::SqlitePool;
 use std::str::FromStr;
 
 fn encrypt_cloud_config(plaintext: &str) -> anyhow::Result<String> {
     hw_encrypt(plaintext)
 }
 
-fn decrypt_cloud_config(enc: &str) -> Option<S3Config>     { hw_decrypt_json(enc) }
-fn decrypt_sftp_config(enc: &str)  -> Option<SftpConfig>   { hw_decrypt_json(enc) }
-fn decrypt_oauth_config(enc: &str) -> Option<OAuthConfig>  { hw_decrypt_json(enc) }
-fn decrypt_webdav_config(enc: &str)-> Option<WebDavConfig> { hw_decrypt_json(enc) }
+fn decrypt_cloud_config(enc: &str) -> Option<S3Config> {
+    hw_decrypt_json(enc)
+}
+fn decrypt_sftp_config(enc: &str) -> Option<SftpConfig> {
+    hw_decrypt_json(enc)
+}
+fn decrypt_oauth_config(enc: &str) -> Option<OAuthConfig> {
+    hw_decrypt_json(enc)
+}
+fn decrypt_webdav_config(enc: &str) -> Option<WebDavConfig> {
+    hw_decrypt_json(enc)
+}
 
 fn parse_destination_type(s: &str) -> DestinationType {
     match s {
@@ -81,7 +92,7 @@ pub async fn get_all_sources(pool: &SqlitePool) -> anyhow::Result<Vec<Source>> {
 
 pub async fn get_source_by_id(pool: &SqlitePool, id: &str) -> anyhow::Result<Option<Source>> {
     let row = sqlx::query(
-        "SELECT id, name, path, source_type, enabled, created_at FROM sources WHERE id = ?"
+        "SELECT id, name, path, source_type, enabled, created_at FROM sources WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -164,7 +175,10 @@ pub async fn delete_source(pool: &SqlitePool, id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::Result<Option<Destination>> {
+pub async fn get_destination_by_id(
+    pool: &SqlitePool,
+    dest_id: &str,
+) -> anyhow::Result<Option<Destination>> {
     let row = sqlx::query(
         "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt
          FROM destinations WHERE id = ?"
@@ -182,28 +196,64 @@ pub async fn get_destination_by_id(pool: &SqlitePool, dest_id: &str) -> anyhow::
             let path: String = row.try_get("path")?;
             let schedule_json: String = row.try_get("schedule_json")?;
             let retention_json: String = row.try_get("retention_json")?;
-            let exclusions_json: String = row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
+            let exclusions_json: String = row
+                .try_get("exclusions_json")
+                .unwrap_or_else(|_| "[]".to_string());
             let enabled_int: i64 = row.try_get("enabled")?;
             let incremental_int: i64 = row.try_get("incremental").unwrap_or(0);
             let last_run_str: Option<String> = row.try_get("last_run")?;
             let last_status_str: Option<String> = row.try_get("last_status")?;
             let next_run_str: Option<String> = row.try_get("next_run")?;
-            let destination_type_str_val: String = row.try_get("destination_type").unwrap_or_else(|_| "Local".to_string());
-            let cloud_config_json_enc: Option<String> = row.try_get("cloud_config_json").unwrap_or(None);
+            let destination_type_str_val: String = row
+                .try_get("destination_type")
+                .unwrap_or_else(|_| "Local".to_string());
+            let cloud_config_json_enc: Option<String> =
+                row.try_get("cloud_config_json").unwrap_or(None);
 
             let schedule: crate::models::schedule::Schedule = serde_json::from_str(&schedule_json)?;
-            let retention: crate::models::schedule::RetentionPolicy = serde_json::from_str(&retention_json)?;
-            let exclusions: Vec<String> = serde_json::from_str(&exclusions_json).unwrap_or_default();
+            let retention: crate::models::schedule::RetentionPolicy =
+                serde_json::from_str(&retention_json)?;
+            let exclusions: Vec<String> =
+                serde_json::from_str(&exclusions_json).unwrap_or_default();
             let last_run = last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
             let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
             let next_run = next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
             let destination_type = parse_destination_type(&destination_type_str_val);
-            let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
-            let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
-            let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
-            let webdav_config = if destination_type == DestinationType::WebDav { cloud_config_json_enc.as_deref().and_then(decrypt_webdav_config) } else { None };
+            let cloud_config =
+                if matches!(destination_type, DestinationType::S3 | DestinationType::R2) {
+                    cloud_config_json_enc
+                        .as_deref()
+                        .and_then(decrypt_cloud_config)
+                } else {
+                    None
+                };
+            let sftp_config = if destination_type == DestinationType::Sftp {
+                cloud_config_json_enc
+                    .as_deref()
+                    .and_then(decrypt_sftp_config)
+            } else {
+                None
+            };
+            let oauth_config = if matches!(
+                destination_type,
+                DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox
+            ) {
+                cloud_config_json_enc
+                    .as_deref()
+                    .and_then(decrypt_oauth_config)
+            } else {
+                None
+            };
+            let webdav_config = if destination_type == DestinationType::WebDav {
+                cloud_config_json_enc
+                    .as_deref()
+                    .and_then(decrypt_webdav_config)
+            } else {
+                None
+            };
             let encrypt_int: i64 = row.try_get("encrypt").unwrap_or(0);
-            let encrypt_password_enc: Option<String> = row.try_get("encrypt_password_enc").unwrap_or(None);
+            let encrypt_password_enc: Option<String> =
+                row.try_get("encrypt_password_enc").unwrap_or(None);
             let encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
 
             Ok(Some(Destination {
@@ -359,14 +409,19 @@ pub async fn get_destinations_for_source(
         let path: String = row.try_get("path")?;
         let schedule_json: String = row.try_get("schedule_json")?;
         let retention_json: String = row.try_get("retention_json")?;
-        let exclusions_json: String = row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
+        let exclusions_json: String = row
+            .try_get("exclusions_json")
+            .unwrap_or_else(|_| "[]".to_string());
         let enabled_int: i64 = row.try_get("enabled")?;
         let incremental_int: i64 = row.try_get("incremental").unwrap_or(0);
         let last_run_str: Option<String> = row.try_get("last_run")?;
         let last_status_str: Option<String> = row.try_get("last_status")?;
         let next_run_str: Option<String> = row.try_get("next_run")?;
-        let destination_type_str_val: String = row.try_get("destination_type").unwrap_or_else(|_| "Local".to_string());
-        let cloud_config_json_enc: Option<String> = row.try_get("cloud_config_json").unwrap_or(None);
+        let destination_type_str_val: String = row
+            .try_get("destination_type")
+            .unwrap_or_else(|_| "Local".to_string());
+        let cloud_config_json_enc: Option<String> =
+            row.try_get("cloud_config_json").unwrap_or(None);
 
         let schedule: Schedule = serde_json::from_str(&schedule_json)?;
         let retention: RetentionPolicy = serde_json::from_str(&retention_json)?;
@@ -377,12 +432,41 @@ pub async fn get_destinations_for_source(
         let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
         let next_run = next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
         let destination_type = parse_destination_type(&destination_type_str_val);
-        let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
-        let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
-        let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
-        let webdav_config = if destination_type == DestinationType::WebDav { cloud_config_json_enc.as_deref().and_then(decrypt_webdav_config) } else { None };
+        let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2)
+        {
+            cloud_config_json_enc
+                .as_deref()
+                .and_then(decrypt_cloud_config)
+        } else {
+            None
+        };
+        let sftp_config = if destination_type == DestinationType::Sftp {
+            cloud_config_json_enc
+                .as_deref()
+                .and_then(decrypt_sftp_config)
+        } else {
+            None
+        };
+        let oauth_config = if matches!(
+            destination_type,
+            DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox
+        ) {
+            cloud_config_json_enc
+                .as_deref()
+                .and_then(decrypt_oauth_config)
+        } else {
+            None
+        };
+        let webdav_config = if destination_type == DestinationType::WebDav {
+            cloud_config_json_enc
+                .as_deref()
+                .and_then(decrypt_webdav_config)
+        } else {
+            None
+        };
         let encrypt_int: i64 = row.try_get("encrypt").unwrap_or(0);
-        let encrypt_password_enc: Option<String> = row.try_get("encrypt_password_enc").unwrap_or(None);
+        let encrypt_password_enc: Option<String> =
+            row.try_get("encrypt_password_enc").unwrap_or(None);
         let encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
 
         destinations.push(Destination {
@@ -442,14 +526,19 @@ pub async fn get_all_active_destinations(
         let d_path: String = row.try_get("d_path")?;
         let schedule_json: String = row.try_get("schedule_json")?;
         let retention_json: String = row.try_get("retention_json")?;
-        let exclusions_json: String = row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
+        let exclusions_json: String = row
+            .try_get("exclusions_json")
+            .unwrap_or_else(|_| "[]".to_string());
         let d_enabled_int: i64 = row.try_get("d_enabled")?;
         let incremental_int: i64 = row.try_get("incremental").unwrap_or(0);
         let last_run_str: Option<String> = row.try_get("last_run")?;
         let last_status_str: Option<String> = row.try_get("last_status")?;
         let next_run_str: Option<String> = row.try_get("next_run")?;
-        let destination_type_str_val: String = row.try_get("destination_type").unwrap_or_else(|_| "Local".to_string());
-        let cloud_config_json_enc: Option<String> = row.try_get("cloud_config_json").unwrap_or(None);
+        let destination_type_str_val: String = row
+            .try_get("destination_type")
+            .unwrap_or_else(|_| "Local".to_string());
+        let cloud_config_json_enc: Option<String> =
+            row.try_get("cloud_config_json").unwrap_or(None);
 
         let source_type = SourceType::from_str(&source_type_str)?;
         let created_at = created_at_str
@@ -462,10 +551,38 @@ pub async fn get_all_active_destinations(
         let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
         let next_run = next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
         let destination_type = parse_destination_type(&destination_type_str_val);
-        let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2) { cloud_config_json_enc.as_deref().and_then(decrypt_cloud_config) } else { None };
-        let sftp_config = if destination_type == DestinationType::Sftp { cloud_config_json_enc.as_deref().and_then(decrypt_sftp_config) } else { None };
-        let oauth_config = if matches!(destination_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) { cloud_config_json_enc.as_deref().and_then(decrypt_oauth_config) } else { None };
-        let webdav_config = if destination_type == DestinationType::WebDav { cloud_config_json_enc.as_deref().and_then(decrypt_webdav_config) } else { None };
+        let cloud_config = if matches!(destination_type, DestinationType::S3 | DestinationType::R2)
+        {
+            cloud_config_json_enc
+                .as_deref()
+                .and_then(decrypt_cloud_config)
+        } else {
+            None
+        };
+        let sftp_config = if destination_type == DestinationType::Sftp {
+            cloud_config_json_enc
+                .as_deref()
+                .and_then(decrypt_sftp_config)
+        } else {
+            None
+        };
+        let oauth_config = if matches!(
+            destination_type,
+            DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox
+        ) {
+            cloud_config_json_enc
+                .as_deref()
+                .and_then(decrypt_oauth_config)
+        } else {
+            None
+        };
+        let webdav_config = if destination_type == DestinationType::WebDav {
+            cloud_config_json_enc
+                .as_deref()
+                .and_then(decrypt_webdav_config)
+        } else {
+            None
+        };
 
         let source = Source {
             id: s_id.clone(),
@@ -478,7 +595,8 @@ pub async fn get_all_active_destinations(
         };
 
         let d_encrypt_int: i64 = row.try_get("encrypt").unwrap_or(0);
-        let d_encrypt_password_enc: Option<String> = row.try_get("encrypt_password_enc").unwrap_or(None);
+        let d_encrypt_password_enc: Option<String> =
+            row.try_get("encrypt_password_enc").unwrap_or(None);
         let d_encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
 
         let destination = Destination {
@@ -532,15 +650,13 @@ pub async fn update_destination_run_status(
     next_run: Option<DateTime<Utc>>,
 ) -> anyhow::Result<()> {
     let next_run_str = next_run.map(|dt| dt.to_rfc3339());
-    sqlx::query(
-        "UPDATE destinations SET last_run = ?, last_status = ?, next_run = ? WHERE id = ?"
-    )
-    .bind(last_run.to_rfc3339())
-    .bind(status)
-    .bind(next_run_str)
-    .bind(dest_id)
-    .execute(pool)
-    .await?;
+    sqlx::query("UPDATE destinations SET last_run = ?, last_status = ?, next_run = ? WHERE id = ?")
+        .bind(last_run.to_rfc3339())
+        .bind(status)
+        .bind(next_run_str)
+        .bind(dest_id)
+        .execute(pool)
+        .await?;
 
     Ok(())
 }
@@ -618,6 +734,9 @@ pub async fn get_logs(
     source_id: Option<&str>,
     destination_id: Option<&str>,
     status: Option<&str>,
+    started_after: Option<&str>,
+    started_before: Option<&str>,
+    search_text: Option<&str>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> anyhow::Result<Vec<crate::models::LogEntry>> {
@@ -634,6 +753,21 @@ pub async fn get_logs(
     }
     if status.is_some() {
         query_str.push_str(" AND status = ?");
+    }
+    if started_after.is_some() {
+        query_str.push_str(" AND started_at >= ?");
+    }
+    if started_before.is_some() {
+        query_str.push_str(" AND started_at <= ?");
+    }
+    let search_like = search_text
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("%{}%", s));
+    if search_like.is_some() {
+        query_str.push_str(
+            " AND (source_path LIKE ? OR destination_path LIKE ? OR COALESCE(error_message, '') LIKE ?)",
+        );
     }
 
     query_str.push_str(" ORDER BY started_at DESC");
@@ -655,6 +789,15 @@ pub async fn get_logs(
     }
     if let Some(st) = status {
         q = q.bind(st);
+    }
+    if let Some(sa) = started_after {
+        q = q.bind(sa);
+    }
+    if let Some(sb) = started_before {
+        q = q.bind(sb);
+    }
+    if let Some(pattern) = search_like {
+        q = q.bind(pattern.clone()).bind(pattern.clone()).bind(pattern);
     }
     if let Some(l) = limit {
         q = q.bind(l);
@@ -707,22 +850,66 @@ pub async fn get_logs(
     Ok(logs)
 }
 
-pub async fn get_log_count(pool: &SqlitePool, source_id: Option<&str>) -> anyhow::Result<i64> {
-    let count: i64 = if let Some(sid) = source_id {
-        let row = sqlx::query("SELECT COUNT(*) as cnt FROM copy_logs WHERE source_id = ?")
-            .bind(sid)
-            .fetch_one(pool)
-            .await?;
-        use sqlx::Row;
-        row.try_get("cnt")?
-    } else {
-        let row = sqlx::query("SELECT COUNT(*) as cnt FROM copy_logs")
-            .fetch_one(pool)
-            .await?;
-        use sqlx::Row;
-        row.try_get("cnt")?
-    };
+pub async fn get_log_count(
+    pool: &SqlitePool,
+    source_id: Option<&str>,
+    destination_id: Option<&str>,
+    status: Option<&str>,
+    started_after: Option<&str>,
+    started_before: Option<&str>,
+    search_text: Option<&str>,
+) -> anyhow::Result<i64> {
+    let mut query_str = String::from("SELECT COUNT(*) as cnt FROM copy_logs WHERE 1=1");
 
+    if source_id.is_some() {
+        query_str.push_str(" AND source_id = ?");
+    }
+    if destination_id.is_some() {
+        query_str.push_str(" AND destination_id = ?");
+    }
+    if status.is_some() {
+        query_str.push_str(" AND status = ?");
+    }
+    if started_after.is_some() {
+        query_str.push_str(" AND started_at >= ?");
+    }
+    if started_before.is_some() {
+        query_str.push_str(" AND started_at <= ?");
+    }
+    let search_like = search_text
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("%{}%", s));
+    if search_like.is_some() {
+        query_str.push_str(
+            " AND (source_path LIKE ? OR destination_path LIKE ? OR COALESCE(error_message, '') LIKE ?)",
+        );
+    }
+
+    let mut q = sqlx::query(&query_str);
+
+    if let Some(sid) = source_id {
+        q = q.bind(sid);
+    }
+    if let Some(did) = destination_id {
+        q = q.bind(did);
+    }
+    if let Some(st) = status {
+        q = q.bind(st);
+    }
+    if let Some(sa) = started_after {
+        q = q.bind(sa);
+    }
+    if let Some(sb) = started_before {
+        q = q.bind(sb);
+    }
+    if let Some(pattern) = search_like {
+        q = q.bind(pattern.clone()).bind(pattern.clone()).bind(pattern);
+    }
+
+    let row = q.fetch_one(pool).await?;
+    use sqlx::Row;
+    let count: i64 = row.try_get("cnt")?;
     Ok(count)
 }
 
@@ -733,6 +920,76 @@ pub async fn clear_old_logs(pool: &SqlitePool, older_than_days: u32) -> anyhow::
         .execute(pool)
         .await?;
 
+    Ok(result.rows_affected())
+}
+
+pub async fn delete_log_entry(pool: &SqlitePool, log_id: i64) -> anyhow::Result<u64> {
+    let result = sqlx::query("DELETE FROM copy_logs WHERE id = ?")
+        .bind(log_id)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected())
+}
+
+pub async fn clear_logs(
+    pool: &SqlitePool,
+    source_id: Option<&str>,
+    destination_id: Option<&str>,
+    status: Option<&str>,
+    started_after: Option<&str>,
+    started_before: Option<&str>,
+    search_text: Option<&str>,
+) -> anyhow::Result<u64> {
+    let mut query_str = String::from("DELETE FROM copy_logs WHERE 1=1");
+
+    if source_id.is_some() {
+        query_str.push_str(" AND source_id = ?");
+    }
+    if destination_id.is_some() {
+        query_str.push_str(" AND destination_id = ?");
+    }
+    if status.is_some() {
+        query_str.push_str(" AND status = ?");
+    }
+    if started_after.is_some() {
+        query_str.push_str(" AND started_at >= ?");
+    }
+    if started_before.is_some() {
+        query_str.push_str(" AND started_at <= ?");
+    }
+    let search_like = search_text
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("%{}%", s));
+    if search_like.is_some() {
+        query_str.push_str(
+            " AND (source_path LIKE ? OR destination_path LIKE ? OR COALESCE(error_message, '') LIKE ?)",
+        );
+    }
+
+    let mut q = sqlx::query(&query_str);
+
+    if let Some(sid) = source_id {
+        q = q.bind(sid);
+    }
+    if let Some(did) = destination_id {
+        q = q.bind(did);
+    }
+    if let Some(st) = status {
+        q = q.bind(st);
+    }
+    if let Some(sa) = started_after {
+        q = q.bind(sa);
+    }
+    if let Some(sb) = started_before {
+        q = q.bind(sb);
+    }
+    if let Some(pattern) = search_like {
+        q = q.bind(pattern.clone()).bind(pattern.clone()).bind(pattern);
+    }
+
+    let result = q.execute(pool).await?;
     Ok(result.rows_affected())
 }
 

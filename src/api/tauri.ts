@@ -1,6 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Source, Destination, LogEntry, AppSettings, ScheduleType, RetentionPolicy, BackupPreview, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig, VaultSummary, VaultEntry } from "../store/types";
 
+export interface LogQueryFilters {
+  sourceId?: string;
+  destinationId?: string;
+  status?: string;
+  startedAfter?: string;
+  startedBefore?: string;
+  searchText?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export type LogExportFormat = "csv" | "json";
+
 export const api = {
   sources: {
     getAll: () => invoke<Source[]>("get_sources"),
@@ -44,10 +57,16 @@ export const api = {
     resumeAll: () => invoke<void>("resume_all"),
   },
   logs: {
-    get: (filters?: { sourceId?: string; destinationId?: string; status?: string; limit?: number; offset?: number }) =>
+    get: (filters?: LogQueryFilters) =>
       invoke<LogEntry[]>("get_logs", filters ?? {}),
-    count: (sourceId?: string) => invoke<number>("get_log_count", { sourceId: sourceId ?? null }),
+    count: (filters?: Omit<LogQueryFilters, "limit" | "offset">) =>
+      invoke<number>("get_log_count", filters ?? {}),
     clearOld: (days: number) => invoke<number>("clear_old_logs", { olderThanDays: days }),
+    deleteEntry: (logId: number) => invoke<number>("delete_log_entry", { logId }),
+    clear: (filters?: Omit<LogQueryFilters, "limit" | "offset">) =>
+      invoke<number>("clear_logs", filters ?? {}),
+    export: (format: LogExportFormat, filters?: Omit<LogQueryFilters, "limit" | "offset">) =>
+      invoke<string>("export_logs", { format, ...(filters ?? {}) }),
   },
   fs: {
     pickDirectory: () => invoke<string | null>("pick_directory"),
