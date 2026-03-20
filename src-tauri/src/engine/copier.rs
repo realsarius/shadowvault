@@ -11,6 +11,9 @@ use tauri::Emitter;
 use crate::models::{Source, Destination, SourceType, LogEntry};
 use crate::db::queries;
 use crate::engine::versioning;
+use crate::engine::block::store::LocalBlockStore;
+use crate::engine::block::repository::Repository;
+use crate::engine::block::snapshot::{BackupLevel, EncryptionConfig};
 use crate::crypto_utils::hw_decrypt;
 
 pub struct CopyJob {
@@ -18,6 +21,8 @@ pub struct CopyJob {
     pub destination: Destination,
     pub trigger: String,
     pub app: Option<tauri::AppHandle>,
+    /// Explicitly set backup level (from scheduler). None = auto-detect.
+    pub backup_level: Option<BackupLevel>,
 }
 
 /// System-owned directories that should never be used as backup destinations.
@@ -140,14 +145,6 @@ fn build_exclusion_set(patterns: &[String]) -> globset::GlobSet {
     builder.build().unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap())
 }
 
-// ── Chunked copy constants ────────────────────────────────────────────────────
-
-/// Files larger than this are copied in chunks instead of a single fs::copy.
-const LARGE_FILE_THRESHOLD: u64 = 1_073_741_824; // 1 GB
-
-/// Chunk size used when streaming large files.
-const CHUNK_SIZE: usize = 67_108_864; // 64 MB
-
 // ── CopyJob ──────────────────────────────────────────────────────────────────
 
 impl CopyJob {
@@ -259,53 +256,30 @@ impl CopyJob {
         )
         .await?;
 
-        let version_path = versioning::compute_version_path(
-            &self.destination.path,
-            &self.source.name,
-            &self.destination.retention.naming,
-            started_at,
-        );
+        let destination_path_str = self.destination.path.clone();
 
-        let destination_path_str = version_path.to_string_lossy().to_string();
-
+        // ── Block-Level Delta Backup ─────────────────────────────────────
         let copy_result = match self.check_disk_space() {
             Err(e) => Err(e),
-            Ok(()) => {
-                let mut result = Err(anyhow::anyhow!("Copy did not start"));
-                for attempt in 1u32..=3 {
-                    result = self.do_copy(&version_path).await;
-                    if result.is_ok() { break; }
-                    if attempt < 3 {
-                        log::warn!(
-                            "Copy attempt {}/3 failed for destination {}: {}, retrying in 5s...",
-                            attempt, self.destination.id, result.as_ref().unwrap_err()
-                        );
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    }
-                }
-                result
-            }
+            Ok(()) => self.do_block_backup().await,
         };
 
         let ended_at = Utc::now();
 
         match copy_result {
-            Ok((bytes_copied, files_copied, checksum)) => {
-                // Post-copy encryption for local destinations
-                if self.destination.encrypt {
-                    if let (Some(ref enc_pwd), Some(ref enc_salt)) =
-                        (&self.destination.encrypt_password_enc, &self.destination.encrypt_salt)
-                    {
-                        match derive_backup_key(enc_pwd, enc_salt) {
-                            Ok(key) => {
-                                if let Err(e) = encrypt_backup_dir(&version_path, &key, enc_salt) {
-                                    log::warn!("Backup encryption failed for {}: {}", self.destination.id, e);
-                                }
-                            }
-                            Err(e) => log::warn!("Could not derive backup key: {}", e),
-                        }
-                    }
-                }
+            Ok(snapshot) => {
+                let files_copied = snapshot.files.len() as i32;
+                let bytes_copied = snapshot.total_size as i64;
+                let savings_pct = (snapshot.savings_ratio() * 100.0) as u32;
+                let checksum = Some(format!(
+                    "{} dosya, {} blok ({} değişen), {} %{} tasarruf, {} byte kazanç",
+                    files_copied,
+                    snapshot.total_blocks,
+                    snapshot.changed_blocks,
+                    snapshot.level,
+                    savings_pct,
+                    snapshot.total_size as i64 - snapshot.changed_bytes as i64,
+                ));
 
                 let checksum_ref = checksum.as_deref();
                 queries::update_log_entry_completed(
@@ -315,14 +289,16 @@ impl CopyJob {
                 )
                 .await?;
 
-                if let Err(e) = versioning::apply_retention(
-                    &self.destination.path,
-                    &self.source.name,
-                    self.destination.retention.max_versions,
-                )
-                .await
+                // Prune old backup sets based on retention policy
                 {
-                    log::warn!("Retention policy failed for destination {}: {}", self.destination.id, e);
+                    let store = Box::new(LocalBlockStore::new(&self.destination.path));
+                    let encryption_key = self.get_encryption_key();
+                    if let Ok(mut repo) = Repository::open_or_init(store, encryption_key, None).await {
+                        let keep = self.destination.retention.max_versions as u32;
+                        if let Err(e) = repo.prune(keep).await {
+                            log::warn!("Block prune failed for {}: {}", self.destination.id, e);
+                        }
+                    }
                 }
 
                 let next_run = compute_next_run(&self.destination.schedule, ended_at);
@@ -341,6 +317,12 @@ impl CopyJob {
                         ).await;
                     });
                 }
+
+                log::info!(
+                    "Block backup completed: {} files, {} blocks ({} changed), {} {}% savings",
+                    files_copied, snapshot.total_blocks, snapshot.changed_blocks,
+                    snapshot.level, savings_pct
+                );
 
                 Ok(LogEntry {
                     id: log_id,
@@ -397,9 +379,17 @@ impl CopyJob {
             SourceType::File => std::fs::metadata(&self.source.path)
                 .map(|m| m.len())
                 .unwrap_or(0),
-            SourceType::Directory => count_dir_stats(std::path::Path::new(&self.source.path))
-                .map(|(bytes, _)| bytes as u64)
-                .unwrap_or(0),
+            SourceType::Directory => {
+                let mut total: u64 = 0;
+                for entry in walkdir::WalkDir::new(&self.source.path) {
+                    if let Ok(e) = entry {
+                        if e.file_type().is_file() {
+                            total += e.metadata().map(|m| m.len()).unwrap_or(0);
+                        }
+                    }
+                }
+                total
+            }
         };
 
         if source_size == 0 { return Ok(()); }
@@ -437,190 +427,108 @@ impl CopyJob {
         }
     }
 
-    /// Copies `src` to `dst`. For files >= LARGE_FILE_THRESHOLD, streams in
-    /// CHUNK_SIZE chunks and emits a progress event after each chunk.
-    /// For smaller files, uses a single `fs::copy` call (no mid-copy events).
-    /// Returns the number of bytes written.
-    fn copy_file_chunked(
-        &self,
-        src: &std::path::Path,
-        dst: &std::path::Path,
-        files_done: i32,
-        files_total: i32,
-        bytes_before: i64,
-        bytes_total: i64,
-    ) -> anyhow::Result<u64> {
-        use std::io::{Read, Write};
-
-        let file_size = std::fs::metadata(src)?.len();
-
-        if file_size < LARGE_FILE_THRESHOLD {
-            return Ok(std::fs::copy(src, dst)?);
+    /// Derives the encryption key from the destination's stored password, if encryption is enabled.
+    fn get_encryption_key(&self) -> Option<[u8; 32]> {
+        if !self.destination.encrypt {
+            return None;
         }
-
-        let mut src_file = std::fs::File::open(src)?;
-        let mut dst_file = std::fs::File::create(dst)?;
-        let mut buf = vec![0u8; CHUNK_SIZE];
-        let mut written: u64 = 0;
-
-        loop {
-            let n = src_file.read(&mut buf)?;
-            if n == 0 { break; }
-            dst_file.write_all(&buf[..n])?;
-            written += n as u64;
-            self.emit_progress(files_done, files_total, bytes_before + written as i64, bytes_total);
+        if let (Some(ref enc_pwd), Some(ref enc_salt)) =
+            (&self.destination.encrypt_password_enc, &self.destination.encrypt_salt)
+        {
+            derive_backup_key(enc_pwd, enc_salt).ok()
+        } else {
+            None
         }
-
-        Ok(written)
     }
 
-    /// Returns (bytes_copied, files_copied, checksum_string)
-    async fn do_copy(&self, version_path: &std::path::Path) -> anyhow::Result<(i64, i32, Option<String>)> {
-        std::fs::create_dir_all(version_path)?;
-
+    /// Performs a block-level delta backup. Returns the snapshot with savings stats.
+    async fn do_block_backup(&self) -> anyhow::Result<crate::engine::block::snapshot::Snapshot> {
+        let source_path = std::path::Path::new(&self.source.path);
         let exclusion_set = build_exclusion_set(&self.destination.exclusions);
 
-        match &self.source.source_type {
-            SourceType::File => {
-                let source_path = std::path::Path::new(&self.source.path);
-                let file_name = source_path
-                    .file_name()
-                    .ok_or_else(|| anyhow::anyhow!("Cannot determine file name from source path"))?;
-                let dest_file = version_path.join(file_name);
+        let encryption_key = self.get_encryption_key();
+        let enc_config = if let (Some(_key), Some(ref salt)) = (encryption_key, &self.destination.encrypt_salt) {
+            Some(EncryptionConfig {
+                algorithm: "AES-256-GCM".into(),
+                argon2_salt: salt.clone(),
+                argon2_m_cost: 65536,
+                argon2_t_cost: 3,
+                argon2_p_cost: 4,
+            })
+        } else {
+            None
+        };
 
-                let file_size = std::fs::metadata(source_path).map(|m| m.len()).unwrap_or(0) as i64;
-                self.emit_progress(0, 1, 0, file_size);
-                let bytes = self.copy_file_chunked(source_path, &dest_file, 0, 1, 0, file_size)?;
+        let store = Box::new(LocalBlockStore::new(&self.destination.path));
+        let mut repo = Repository::open_or_init(store, encryption_key, enc_config).await?;
 
-                // SHA-256 integrity check
-                let src_hash = compute_file_hash(source_path)?;
-                let dst_hash = compute_file_hash(&dest_file)?;
-                if src_hash != dst_hash {
-                    std::fs::remove_file(&dest_file).ok();
-                    anyhow::bail!(
-                        "Bütünlük doğrulaması başarısız: kaynak ve hedef SHA-256 değerleri eşleşmiyor"
-                    );
-                }
+        // Determine backup level:
+        // 1. Explicitly set by scheduler → use it
+        // 2. Manual trigger → Level 0 (full)
+        // Safety: if Level 1 requested but no Level 0 exists, force Level 0
+        let mut level = self.backup_level.unwrap_or(BackupLevel::Level0);
 
-                self.emit_progress(1, 1, bytes as i64, file_size);
-                Ok((bytes as i64, 1, Some(src_hash)))
-            }
-            SourceType::Directory => {
-                let source_path = std::path::Path::new(&self.source.path);
-
-                // For incremental mode: only copy files modified after last_run
-                let since: Option<std::time::SystemTime> =
-                    if self.destination.incremental {
-                        self.destination.last_run.map(|dt| {
-                            std::time::UNIX_EPOCH +
-                                std::time::Duration::from_secs(dt.timestamp() as u64)
-                        })
-                    } else {
-                        None
-                    };
-
-                // Collect all entries first so we know totals for progress.
-                // Each tuple: (source_path, dest_path, file_size_bytes)
-                let mut file_entries: Vec<(std::path::PathBuf, std::path::PathBuf, u64)> = Vec::new();
-                let mut dir_entries: Vec<std::path::PathBuf> = Vec::new();
-
-                for entry in walkdir::WalkDir::new(source_path) {
-                    let entry = entry?;
-                    let rel_path = entry.path()
-                        .strip_prefix(source_path)
-                        .unwrap_or(entry.path());
-
-                    if rel_path == std::path::Path::new("") { continue; }
-                    if exclusion_set.is_match(rel_path) {
-                        log::debug!("Excluded: {}", rel_path.display());
-                        continue;
-                    }
-
-                    // Incremental: skip files not modified since last run
-                    if let Some(since_time) = since {
-                        if entry.file_type().is_file() {
-                            if let Ok(meta) = entry.metadata() {
-                                if let Ok(modified) = meta.modified() {
-                                    if modified <= since_time {
-                                        log::debug!("Incremental skip (unchanged): {}", rel_path.display());
-                                        continue;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    let dest_entry = version_path.join(rel_path);
-                    if entry.file_type().is_dir() {
-                        dir_entries.push(dest_entry);
-                    } else if entry.file_type().is_file() {
-                        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
-                        file_entries.push((entry.path().to_path_buf(), dest_entry, size));
-                    }
-                }
-
-                let files_total = file_entries.len() as i32;
-                let total_expected_bytes: i64 = file_entries.iter().map(|(_, _, s)| *s as i64).sum();
-                self.emit_progress(0, files_total, 0, total_expected_bytes);
-
-                // Create directories
-                for dir in &dir_entries {
-                    std::fs::create_dir_all(dir)?;
-                }
-
-                // Copy files with progress (large files get per-chunk events)
-                let mut total_bytes: i64 = 0;
-                let mut total_files: i32 = 0;
-                let mut bytes_done: i64 = 0;
-
-                for (src_path, dst_path, _) in &file_entries {
-                    if let Some(parent) = dst_path.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    let bytes = self.copy_file_chunked(src_path, dst_path, total_files, files_total, bytes_done, total_expected_bytes)?;
-                    total_bytes += bytes as i64;
-                    total_files += 1;
-                    bytes_done += bytes as i64;
-                    self.emit_progress(total_files, files_total, bytes_done, total_expected_bytes);
-                }
-
-                // Verify: destination file count must match what we copied
-                // (incremental runs may copy fewer files than the full source)
-                let (dst_bytes, dst_files) = count_dir_stats(version_path)?;
-                if dst_files != total_files {
-                    anyhow::bail!(
-                        "Bütünlük doğrulaması başarısız: kopyalanan {} dosyadan {} hedefte bulunamadı",
-                        total_files, dst_files
-                    );
-                }
-
-                let mode = if self.destination.incremental && since.is_some() { "artımlı" } else { "tam" };
-                let checksum = Some(format!("{} dosya, {} bayt doğrulandı ({})", dst_files, dst_bytes, mode));
-                Ok((total_bytes, total_files, checksum))
+        if matches!(level, BackupLevel::Level1Cumulative | BackupLevel::Level1Differential) {
+            let snapshots = repo.list_snapshots().await?;
+            let has_level0 = snapshots.iter().any(|s| {
+                s.source_name == self.source.name && s.level == BackupLevel::Level0
+            });
+            if !has_level0 {
+                log::info!("No Level 0 found for '{}', forcing Level 0", self.source.name);
+                level = BackupLevel::Level0;
             }
         }
+
+        let progress = TauriProgressReporter {
+            app: self.app.clone(),
+            destination_id: self.destination.id.clone(),
+        };
+
+        let snapshot = repo.backup(
+            source_path,
+            &self.source.name,
+            &self.source.source_type,
+            &exclusion_set,
+            level,
+            &progress,
+        ).await?;
+
+        Ok(snapshot)
     }
 }
 
-fn count_dir_stats(dir: &std::path::Path) -> anyhow::Result<(i64, i32)> {
-    let mut total_bytes: i64 = 0;
-    let mut total_files: i32 = 0;
+/// Bridges block backup progress events to Tauri's event system.
+struct TauriProgressReporter {
+    app: Option<tauri::AppHandle>,
+    destination_id: String,
+}
 
-    if dir.is_file() {
-        let meta = std::fs::metadata(dir)?;
-        return Ok((meta.len() as i64, 1));
-    }
-
-    for entry in walkdir::WalkDir::new(dir) {
-        let entry = entry?;
-        if entry.file_type().is_file() {
-            let meta = entry.metadata()?;
-            total_bytes += meta.len() as i64;
-            total_files += 1;
+impl crate::engine::block::repository::ProgressReporter for TauriProgressReporter {
+    fn on_file_start(&self, _path: &str, file_index: u32, total_files: u32) {
+        if let Some(app) = &self.app {
+            let _ = app.emit("copy-progress", serde_json::json!({
+                "destination_id": &self.destination_id,
+                "files_done": file_index,
+                "files_total": total_files,
+                "bytes_done": 0,
+                "bytes_total": 0,
+            }));
         }
     }
 
-    Ok((total_bytes, total_files))
+    fn on_file_done(&self, _path: &str, file_index: u32, total_files: u32, bytes: u64) {
+        if let Some(app) = &self.app {
+            let _ = app.emit("copy-progress", serde_json::json!({
+                "destination_id": &self.destination_id,
+                "files_done": file_index + 1,
+                "files_total": total_files,
+                "bytes_done": bytes,
+                "bytes_total": 0,
+            }));
+        }
+    }
+
+    fn on_block_stored(&self, _block_index: u32, _size: u32, _is_changed: bool) {}
 }
 
 pub(crate) fn compute_next_run(
@@ -692,6 +600,11 @@ mod tests {
             sftp_config: None,
             oauth_config: None,
             webdav_config: None,
+            level1_enabled: false,
+            level1_schedule: None,
+            level1_type: "Cumulative".to_string(),
+            level1_last_run: None,
+            level1_next_run: None,
             encrypt: false,
             encrypt_password_enc: None,
             encrypt_salt: None,
@@ -699,13 +612,13 @@ mod tests {
     }
 
     fn make_job(source: Source, destination: Destination) -> CopyJob {
-        CopyJob { source, destination, trigger: "Manual".to_string(), app: None }
+        CopyJob { source, destination, trigger: "Manual".to_string(), app: None, backup_level: None }
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
 
     #[tokio::test]
-    async fn test_copy_single_file() {
+    async fn test_block_backup_single_file() {
         let src_dir = TempDir::new().unwrap();
         let dst_dir = TempDir::new().unwrap();
 
@@ -716,20 +629,16 @@ mod tests {
         let dst = make_destination(dst_dir.path().to_str().unwrap());
         let job = make_job(src, dst);
 
-        let version_path = dst_dir.path().join("v1");
-        let (bytes, files, checksum) = job.do_copy(&version_path).await.unwrap();
+        let snapshot = job.do_block_backup().await.unwrap();
 
-        assert_eq!(files, 1);
-        assert_eq!(bytes, 11);
-        assert!(checksum.is_some());
-
-        let dst_file = version_path.join("hello.txt");
-        assert!(dst_file.exists());
-        assert_eq!(std::fs::read(&dst_file).unwrap(), b"hello world");
+        assert_eq!(snapshot.files.len(), 1);
+        assert_eq!(snapshot.total_size, 11);
+        assert_eq!(snapshot.changed_blocks, snapshot.total_blocks);
+        assert_eq!(snapshot.level, BackupLevel::Level0);
     }
 
     #[tokio::test]
-    async fn test_copy_directory() {
+    async fn test_block_backup_directory() {
         let src_dir = TempDir::new().unwrap();
         let dst_dir = TempDir::new().unwrap();
 
@@ -743,18 +652,39 @@ mod tests {
         let dst = make_destination(dst_dir.path().to_str().unwrap());
         let job = make_job(src, dst);
 
-        let version_path = dst_dir.path().join("v1");
-        let (bytes, files, _) = job.do_copy(&version_path).await.unwrap();
+        let snapshot = job.do_block_backup().await.unwrap();
 
-        assert_eq!(files, 3);
-        assert_eq!(bytes, 12); // 3 + 4 + 5
-        assert!(version_path.join("a.txt").exists());
-        assert!(version_path.join("b.txt").exists());
-        assert!(version_path.join("sub").join("c.txt").exists());
+        assert_eq!(snapshot.files.len(), 3);
+        assert_eq!(snapshot.total_size, 12); // 3 + 4 + 5
     }
 
     #[tokio::test]
-    async fn test_copy_directory_with_exclusion() {
+    async fn test_block_incremental_second_backup_zero_changed() {
+        let src_dir = TempDir::new().unwrap();
+        let dst_dir = TempDir::new().unwrap();
+
+        std::fs::write(src_dir.path().join("data.txt"), b"hello block world").unwrap();
+
+        let src = make_source(src_dir.path().to_str().unwrap(), SourceType::Directory);
+        let mut dst = make_destination(dst_dir.path().to_str().unwrap());
+        dst.incremental = true;
+
+        // First backup — auto Level 0 (no previous Level 0 exists)
+        let job1 = make_job(src.clone(), dst.clone());
+        let snap1 = job1.do_block_backup().await.unwrap();
+        assert_eq!(snap1.level, BackupLevel::Level0);
+        assert!(snap1.changed_blocks > 0, "First backup should store blocks");
+
+        // Second backup — Level 1 Cumulative, same data, zero changed
+        let job2 = make_job(src, dst);
+        let snap2 = job2.do_block_backup().await.unwrap();
+        assert_eq!(snap2.level, BackupLevel::Level1Cumulative);
+        assert_eq!(snap2.changed_blocks, 0, "Second backup should have zero changed blocks");
+        assert_eq!(snap2.changed_bytes, 0, "Second backup should write zero new bytes");
+    }
+
+    #[tokio::test]
+    async fn test_block_backup_with_exclusion() {
         let src_dir = TempDir::new().unwrap();
         let dst_dir = TempDir::new().unwrap();
 
@@ -766,42 +696,10 @@ mod tests {
         dst.exclusions = vec!["*.log".to_string()];
         let job = make_job(src, dst);
 
-        let version_path = dst_dir.path().join("v1");
-        let (_, files, _) = job.do_copy(&version_path).await.unwrap();
+        let snapshot = job.do_block_backup().await.unwrap();
 
-        assert_eq!(files, 1);
-        assert!(version_path.join("keep.txt").exists());
-        assert!(!version_path.join("skip.log").exists());
-    }
-
-    #[tokio::test]
-    async fn test_incremental_skips_old_files() {
-        let src_dir = TempDir::new().unwrap();
-        let dst_dir = TempDir::new().unwrap();
-
-        // Create two files; one "old" (before last_run), one "new" (after)
-        let old_file = src_dir.path().join("old.txt");
-        let new_file = src_dir.path().join("new.txt");
-        std::fs::write(&old_file, b"old").unwrap();
-        std::fs::write(&new_file, b"new").unwrap();
-
-        // old_file was written before last_run; new_file was written after (just now)
-        // We rely on the OS setting mtime = now at write time, which is already the case.
-
-        let src = make_source(src_dir.path().to_str().unwrap(), SourceType::Directory);
-        let mut dst = make_destination(dst_dir.path().to_str().unwrap());
-        dst.incremental = true;
-        // last_run set to now — old_file's mtime is in the past, new_file's is recent
-        dst.last_run = Some(Utc::now() - chrono::Duration::seconds(1800));
-
-        let job = make_job(src, dst);
-        let version_path = dst_dir.path().join("v1");
-        let (_, files, _) = job.do_copy(&version_path).await.unwrap();
-
-        // new_file was created after last_run so it should be copied;
-        // old_file mtime <= last_run so it may be skipped.
-        // At minimum, 1 file (new.txt) must be copied.
-        assert!(files >= 1);
+        assert_eq!(snapshot.files.len(), 1);
+        assert_eq!(snapshot.files[0].path, "keep.txt");
     }
 
     #[tokio::test]
@@ -820,7 +718,6 @@ mod tests {
     #[tokio::test]
     async fn test_validate_destination_inside_source_rejected() {
         let src_dir = TempDir::new().unwrap();
-        // dst is a subdirectory of src — circular copy must be rejected
         let dst_path = src_dir.path().join("backup");
         std::fs::create_dir_all(&dst_path).unwrap();
 
@@ -830,30 +727,6 @@ mod tests {
 
         let result = job.validate_paths();
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_count_dir_stats_single_file() {
-        let dir = TempDir::new().unwrap();
-        let f = dir.path().join("file.bin");
-        std::fs::write(&f, vec![0u8; 100]).unwrap();
-
-        let (bytes, files) = count_dir_stats(dir.path()).unwrap();
-        assert_eq!(files, 1);
-        assert_eq!(bytes, 100);
-    }
-
-    #[test]
-    fn test_count_dir_stats_nested() {
-        let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("a.bin"), vec![0u8; 50]).unwrap();
-        let sub = dir.path().join("sub");
-        std::fs::create_dir(&sub).unwrap();
-        std::fs::write(sub.join("b.bin"), vec![0u8; 150]).unwrap();
-
-        let (bytes, files) = count_dir_stats(dir.path()).unwrap();
-        assert_eq!(files, 2);
-        assert_eq!(bytes, 200);
     }
 
     #[test]

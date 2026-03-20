@@ -29,12 +29,21 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function scheduleLabel(dest: Destination): string {
-  const s = dest.schedule;
-  if (s.type === "Interval") return `${t("dest_schedule_label").replace(":", "")} ${s.value.minutes}dk`;
+function formatSchedule(s: Destination["schedule"]): string {
+  if (s.type === "Interval") return `${s.value.minutes}dk`;
   if (s.type === "Cron") return `Cron: ${s.value.expression}`;
   if (s.type === "OnChange") return t("trigger_onchange");
   return t("trigger_manual");
+}
+
+function scheduleLabel(dest: Destination): string {
+  const l0 = formatSchedule(dest.schedule);
+  if (dest.level1_enabled && dest.level1_schedule) {
+    const l1 = formatSchedule(dest.level1_schedule);
+    const l1Type = dest.level1_type === "Differential" ? "Diff" : "Cum";
+    return `L0: ${l0} | L1: ${l1} (${l1Type})`;
+  }
+  return l0;
 }
 
 function formatDate(iso: string | null): string {
@@ -84,10 +93,13 @@ export function DestinationList(props: Props) {
     props.onAddDestination();
   };
 
-  const handleRunNow = async (destId: string) => {
+  const [runSubMenu, setRunSubMenu] = createSignal<string | null>(null);
+
+  const handleRunNow = async (destId: string, level?: string) => {
     setOpenMenuId(null);
+    setRunSubMenu(null);
     setRunningId(destId);
-    try { await api.jobs.runNow(destId); }
+    try { await api.jobs.runNow(destId, level); }
     catch { /* handled via events */ }
     finally { setRunningId(null); props.onRefresh(); }
   };
@@ -244,12 +256,22 @@ export function DestinationList(props: Props) {
                         <span class={styles.metaLabel}>{t("dest_schedule_label")} </span>{scheduleLabel(dest)}
                       </span>
                       <span class={styles.metaItem}>
-                        <span class={styles.metaLabel}>{t("dest_last_run")} </span>{formatDate(dest.last_run)}
+                        <span class={styles.metaLabel}>L0 {t("dest_last_run")} </span>{formatDate(dest.last_run)}
                       </span>
                       <span class={styles.metaItem}>
-                        <span class={styles.metaLabel}>{t("dest_next_run")} </span>{formatDate(dest.next_run)}
+                        <span class={styles.metaLabel}>L0 {t("dest_next_run")} </span>{formatDate(dest.next_run)}
                       </span>
                     </div>
+                    <Show when={dest.level1_enabled}>
+                      <div class={styles.metaRow}>
+                        <span class={styles.metaItem}>
+                          <span class={styles.metaLabel}>L1 {t("dest_last_run")} </span>{formatDate(dest.level1_last_run)}
+                        </span>
+                        <span class={styles.metaItem}>
+                          <span class={styles.metaLabel}>L1 {t("dest_next_run")} </span>{formatDate(dest.level1_next_run)}
+                        </span>
+                      </div>
+                    </Show>
                   </div>
                   <div class={styles.cardActions}>
                     <Show when={dest.last_status}>
@@ -267,10 +289,31 @@ export function DestinationList(props: Props) {
                       </button>
                       <Show when={menuOpen()}>
                         <div class={styles.dropdown} onClick={(e) => e.stopPropagation()}>
-                          <button class={styles.dropItem} onClick={() => handleRunNow(dest.id)} disabled={isRunning()}>
-                            <TbOutlinePlayerPlay size={14} />
-                            {isRunning() ? t("btn_running") : t("btn_run_now")}
-                          </button>
+                          <div style={{ position: "relative" }}>
+                            <button
+                              class={styles.dropItem}
+                              disabled={isRunning()}
+                              onClick={() => setRunSubMenu(runSubMenu() === dest.id ? null : dest.id)}
+                            >
+                              <TbOutlinePlayerPlay size={14} />
+                              {isRunning() ? t("btn_running") : t("btn_run_now")}
+                              <span style={{ "margin-left": "auto", "font-size": "10px", opacity: 0.6 }}>▸</span>
+                            </button>
+                            <Show when={runSubMenu() === dest.id}>
+                              <div class={styles.dropdown} style={{ position: "absolute", right: "100%", top: "0", "min-width": "180px", "z-index": "1001" }}>
+                                <button class={styles.dropItem} onClick={() => handleRunNow(dest.id, "Level0")}>
+                                  <TbOutlinePlayerPlay size={14} />
+                                  Level 0 (Full)
+                                </button>
+                                <Show when={dest.level1_enabled}>
+                                  <button class={styles.dropItem} onClick={() => handleRunNow(dest.id, dest.level1_type === "Differential" ? "Level1Differential" : "Level1Cumulative")}>
+                                    <TbOutlinePlayerPlay size={14} />
+                                    Level 1 ({dest.level1_type === "Differential" ? "Diff" : "Cum"})
+                                  </button>
+                                </Show>
+                              </div>
+                            </Show>
+                          </div>
                           <button class={styles.dropItem} onClick={() => { setOpenMenuId(null); setPreviewDestId(dest.id); }}>
                             <TbOutlineEye size={14} />
                             {t("dest_preview")}

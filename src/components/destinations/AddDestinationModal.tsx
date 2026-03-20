@@ -70,6 +70,9 @@ export function AddDestinationModal(props: Props) {
   const [naming, setNaming] = createSignal<"Timestamp" | "Index" | "Overwrite">("Timestamp");
   const [exclusionsText, setExclusionsText] = createSignal("");
   const [incremental, setIncremental] = createSignal(false);
+  const [level1Enabled, setLevel1Enabled] = createSignal(false);
+  const [level1Schedule, setLevel1Schedule] = createSignal<ScheduleType>({ type: "Interval", value: { minutes: 10 } });
+  const [level1Type, setLevel1Type] = createSignal<"Cumulative" | "Differential">("Cumulative");
   const [encrypt, setEncrypt] = createSignal(false);
   const [encryptPassword, setEncryptPassword] = createSignal("");
   const [saving, setSaving] = createSignal(false);
@@ -94,6 +97,7 @@ export function AddDestinationModal(props: Props) {
     setOauthConfig(null); setOauthStatus("idle"); setOauthError("");
     setSchedule({ type: "Interval", value: { minutes: 60 } });
     setMaxVersions(10); setNaming("Timestamp"); setExclusionsText(""); setIncremental(false);
+    setLevel1Enabled(false); setLevel1Schedule({ type: "Interval", value: { minutes: 10 } }); setLevel1Type("Cumulative");
     setEncrypt(false); setEncryptPassword("");
     setSaving(false);
   };
@@ -185,7 +189,7 @@ export function AddDestinationModal(props: Props) {
       if (destType() === "Local") {
         if (!destPath().trim()) { toast.error(t("add_dest_path_req")); setSaving(false); return; }
         if (encrypt() && !encryptPassword().trim()) { toast.error(t("dest_encrypt_password")); setSaving(false); return; }
-        await api.destinations.add(props.sourceId, destPath(), schedule(), retention(), exclusions, incremental(), "Local", null, null, null, encrypt(), encrypt() ? encryptPassword().trim() : null);
+        await api.destinations.add(props.sourceId, destPath(), schedule(), retention(), exclusions, incremental(), "Local", null, null, null, encrypt(), encrypt() ? encryptPassword().trim() : null, null, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       } else if (destType() === "Sftp") {
         if (!sftpHost().trim() || !sftpUsername().trim()) { toast.error(t("sftp_fields_required")); setSaving(false); return; }
         const sftpConfig: SftpConfig = {
@@ -198,7 +202,7 @@ export function AddDestinationModal(props: Props) {
           remote_path: sftpRemotePath().trim() || "/",
         };
         const displayPath = `sftp://${sftpHost().trim()}${sftpRemotePath().trim() || "/"}`;
-        await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), "Sftp", null, sftpConfig, null);
+        await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), "Sftp", null, sftpConfig, null, false, null, null, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       } else if (destType() === "WebDav") {
         if (!webdavUrl().trim() || !webdavUsername().trim()) { toast.error(t("webdav_fields_required")); setSaving(false); return; }
         const webdavConfig: WebDavConfig = {
@@ -208,11 +212,11 @@ export function AddDestinationModal(props: Props) {
           root_path: webdavRootPath().trim() || "/ShadowVault",
         };
         const displayPath = `webdav://${webdavUrl().trim().replace(/^https?:\/\//, "")}${webdavRootPath().trim() || "/ShadowVault"}`;
-        await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), "WebDav", null, null, null, false, null, webdavConfig);
+        await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), "WebDav", null, null, null, false, null, webdavConfig, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       } else if (destType() === "OneDrive" || destType() === "GoogleDrive" || destType() === "Dropbox") {
         if (!oauthConfig()) { toast.error(t("oauth_not_connected")); setSaving(false); return; }
         const displayPath = `${oauthProvider()}://${oauthFolderPath().trim() || "/ShadowVault"}`;
-        await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), destType() as DestinationType, null, null, oauthConfig());
+        await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), destType() as DestinationType, null, null, oauthConfig(), false, null, null, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       } else {
         const prov = cloudProvider() as "S3" | "R2";
         if (!bucket().trim()) { toast.error(t("cloud_bucket_required")); setSaving(false); return; }
@@ -229,7 +233,7 @@ export function AddDestinationModal(props: Props) {
           prefix: prefix().trim(),
         };
         const displayPath = `${prov.toLowerCase()}://${bucket().trim()}/${prefix().trim()}`;
-        await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), prov as DestinationType, cloudConfig, null);
+        await api.destinations.add(props.sourceId, displayPath, schedule(), retention(), exclusions, incremental(), prov as DestinationType, cloudConfig, null, null, false, null, null, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       }
 
       props.onCreated();
@@ -552,37 +556,58 @@ export function AddDestinationModal(props: Props) {
       </Show>
 
       <div class={styles.field}>
-        <label class={styles.label}>{t("add_dest_schedule")}</label>
+        <label class={styles.label}>{t("schedule_level0_label")}</label>
+        <div class={styles.hint}>{t("schedule_level0_desc")}</div>
         <div class={styles.scheduleBox}>
           <SchedulePicker
             value={schedule()}
             onChange={setSchedule}
             isLicensed={isLicensed()}
             onProRequired={() => setShowUpgrade(true)}
+            allowedTypes={["Interval", "Cron"]}
           />
         </div>
       </div>
 
-      <div class={styles.retentionRow}>
-        <div class={styles.retentionCol}>
-          <label class={styles.label}>{t("add_dest_max_ver")}</label>
-          <input class={styles.input} type="number" min={1} max={999} value={maxVersions()}
-            onInput={(e) => setMaxVersions(parseInt(e.currentTarget.value) || 10)} />
-        </div>
-        <div class={styles.retentionCol}>
-          <label class={styles.label}>{t("add_dest_naming")}</label>
-          <select class={styles.input} value={naming()} onChange={(e) => setNaming(e.currentTarget.value as any)}>
-            <option value="Timestamp">{t("naming_timestamp")}</option>
-            <option value="Index">{t("naming_index")}</option>
-            <option value="Overwrite">{t("naming_overwrite")}</option>
-          </select>
-        </div>
+      <div class={styles.field}>
+        <label class={styles.label}>{t("add_dest_max_sets")}</label>
+        <div class={styles.hint}>{t("add_dest_max_sets_desc")}</div>
+        <input class={styles.input} type="number" min={1} max={999} value={maxVersions()} style={{ "max-width": "120px" }}
+          onInput={(e) => setMaxVersions(parseInt(e.currentTarget.value) || 10)} />
       </div>
 
       <div class={styles.field}>
-        <Toggle value={incremental()} onChange={setIncremental} label={t("add_dest_incremental")} />
-        <div class={styles.hint}>{t("add_dest_incremental_desc")}</div>
+        <Toggle value={level1Enabled()} onChange={(v) => { setLevel1Enabled(v); setIncremental(v); }} label={t("add_dest_level1_toggle")} />
+        <div class={styles.hint}>{t("add_dest_level1_desc")}</div>
       </div>
+
+      <Show when={level1Enabled()}>
+        <div class={styles.field}>
+          <label class={styles.label}>{t("add_dest_level1_schedule")}</label>
+          <div class={styles.scheduleBox}>
+            <SchedulePicker
+              value={level1Schedule()}
+              onChange={setLevel1Schedule}
+              isLicensed={isLicensed()}
+              onProRequired={() => setShowUpgrade(true)}
+              allowedTypes={["Interval", "Cron"]}
+            />
+          </div>
+        </div>
+        <div class={styles.field}>
+          <label class={styles.label}>{t("add_dest_level1_type")}</label>
+          <div style={{ display: "flex", gap: "16px" }}>
+            <label style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer" }}>
+              <input type="radio" checked={level1Type() === "Cumulative"} onChange={() => setLevel1Type("Cumulative")} />
+              Cumulative ({t("add_dest_level1_cum_desc")})
+            </label>
+            <label style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer" }}>
+              <input type="radio" checked={level1Type() === "Differential"} onChange={() => setLevel1Type("Differential")} />
+              Differential ({t("add_dest_level1_diff_desc")})
+            </label>
+          </div>
+        </div>
+      </Show>
 
       <Show when={destType() === "Local"}>
         <div class={styles.field}>

@@ -24,10 +24,10 @@ export const api = {
     delete: (id: string) => invoke<void>("delete_source", { id }),
   },
   destinations: {
-    add: (sourceId: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, exclusions?: string[], incremental?: boolean, destinationType?: DestinationType, cloudConfig?: S3Config | null, sftpConfig?: SftpConfig | null, oauthConfig?: OAuthConfig | null, encrypt?: boolean, encryptPassword?: string | null, webdavConfig?: WebDavConfig | null) =>
-      invoke<Destination>("add_destination", { sourceId, path, schedule, retention, exclusions: exclusions ?? [], incremental: incremental ?? false, destinationType: destinationType ?? "Local", cloudConfig: cloudConfig ?? null, sftpConfig: sftpConfig ?? null, oauthConfig: oauthConfig ?? null, webdavConfig: webdavConfig ?? null, encrypt: encrypt ?? false, encryptPassword: encryptPassword ?? null }),
-    update: (id: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, enabled: boolean, exclusions?: string[], incremental?: boolean, destinationType?: DestinationType, cloudConfig?: S3Config | null, sftpConfig?: SftpConfig | null, oauthConfig?: OAuthConfig | null, encrypt?: boolean, encryptPassword?: string | null, webdavConfig?: WebDavConfig | null) =>
-      invoke<void>("update_destination", { id, path, schedule, retention, enabled, exclusions: exclusions ?? [], incremental: incremental ?? false, destinationType: destinationType ?? "Local", cloudConfig: cloudConfig ?? null, sftpConfig: sftpConfig ?? null, oauthConfig: oauthConfig ?? null, webdavConfig: webdavConfig ?? null, encrypt: encrypt ?? false, encryptPassword: encryptPassword ?? null }),
+    add: (sourceId: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, exclusions?: string[], incremental?: boolean, destinationType?: DestinationType, cloudConfig?: S3Config | null, sftpConfig?: SftpConfig | null, oauthConfig?: OAuthConfig | null, encrypt?: boolean, encryptPassword?: string | null, webdavConfig?: WebDavConfig | null, level1Enabled?: boolean, level1Schedule?: ScheduleType | null, level1Type?: string) =>
+      invoke<Destination>("add_destination", { sourceId, path, schedule, retention, exclusions: exclusions ?? [], incremental: incremental ?? false, destinationType: destinationType ?? "Local", cloudConfig: cloudConfig ?? null, sftpConfig: sftpConfig ?? null, oauthConfig: oauthConfig ?? null, webdavConfig: webdavConfig ?? null, encrypt: encrypt ?? false, encryptPassword: encryptPassword ?? null, level1Enabled: level1Enabled ?? false, level1Schedule: level1Schedule ?? null, level1Type: level1Type ?? "Cumulative" }),
+    update: (id: string, path: string, schedule: ScheduleType, retention: RetentionPolicy, enabled: boolean, exclusions?: string[], incremental?: boolean, destinationType?: DestinationType, cloudConfig?: S3Config | null, sftpConfig?: SftpConfig | null, oauthConfig?: OAuthConfig | null, encrypt?: boolean, encryptPassword?: string | null, webdavConfig?: WebDavConfig | null, level1Enabled?: boolean, level1Schedule?: ScheduleType | null, level1Type?: string) =>
+      invoke<void>("update_destination", { id, path, schedule, retention, enabled, exclusions: exclusions ?? [], incremental: incremental ?? false, destinationType: destinationType ?? "Local", cloudConfig: cloudConfig ?? null, sftpConfig: sftpConfig ?? null, oauthConfig: oauthConfig ?? null, webdavConfig: webdavConfig ?? null, encrypt: encrypt ?? false, encryptPassword: encryptPassword ?? null, level1Enabled: level1Enabled ?? false, level1Schedule: level1Schedule ?? null, level1Type: level1Type ?? "Cumulative" }),
     delete: (id: string) => invoke<void>("delete_destination", { id }),
     decryptBackup: (folderPath: string, password: string) =>
       invoke<number>("decrypt_backup", { folderPath, password }),
@@ -51,7 +51,7 @@ export const api = {
       invoke<void>("restore_backup", { backupPath, restoreTo }),
   },
   jobs: {
-    runNow: (destinationId: string) => invoke<void>("run_now", { destinationId }),
+    runNow: (destinationId: string, backupLevel?: string) => invoke<void>("run_now", { destinationId, backupLevel: backupLevel ?? null }),
     runSourceNow: (sourceId: string) => invoke<void>("run_source_now", { sourceId }),
     pauseAll: () => invoke<void>("pause_all"),
     resumeAll: () => invoke<void>("resume_all"),

@@ -123,7 +123,12 @@ export function LogPanel(props: Props) {
                         class={`${styles.tr} ${isExpandable() ? styles.trExpandable : ""} ${isExpanded() ? styles.trExpanded : ""}`}
                         onClick={() => isExpandable() && setExpandedId(isExpanded() ? null : log.id)}
                       >
-                        <td class={styles.td}><Badge variant={statusToVariant(log.status)}>{statusLabel(log.status)}</Badge></td>
+                        <td class={styles.td}>
+                          <Badge variant={statusToVariant(log.status)}>{statusLabel(log.status)}</Badge>
+                          <Show when={log.backup_level}>
+                            <Badge variant="neutral">{log.backup_level === "Level0" ? "L0" : log.backup_level === "Level1Cumulative" ? "L1C" : log.backup_level === "Level1Differential" ? "L1D" : log.backup_level}</Badge>
+                          </Show>
+                        </td>
                         <td class={styles.td}><span class={styles.sourceName}>{sourceMap()[log.source_id] ?? log.source_path}</span></td>
                         <td class={`${styles.td} ${styles.tdPath}`}>{log.destination_path}</td>
                         <td class={styles.td}>{triggerLabel(log.trigger)}</td>

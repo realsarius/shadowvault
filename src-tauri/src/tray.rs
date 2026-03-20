@@ -126,6 +126,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                                             destination: dest,
                                             trigger: "Manual".to_string(),
                                             app: Some(ah_start.clone()),
+                                            backup_level: None,
                                         };
                                         match job.execute(db2).await {
                                             Ok(entry) => {

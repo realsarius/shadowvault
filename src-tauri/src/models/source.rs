@@ -24,6 +24,10 @@ fn default_destination_type() -> DestinationType {
     DestinationType::Local
 }
 
+fn default_level1_type() -> String {
+    "Cumulative".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct S3Config {
     pub provider: String,
@@ -129,6 +133,21 @@ pub struct Destination {
     pub oauth_config: Option<OAuthConfig>,
     #[serde(default)]
     pub webdav_config: Option<WebDavConfig>,
+    /// Whether Level 1 (incremental) backups are enabled
+    #[serde(default)]
+    pub level1_enabled: bool,
+    /// Separate schedule for Level 1 backups (if enabled)
+    #[serde(default)]
+    pub level1_schedule: Option<Schedule>,
+    /// Level 1 backup type: "Cumulative" or "Differential"
+    #[serde(default = "default_level1_type")]
+    pub level1_type: String,
+    /// Last time a Level 1 backup ran
+    #[serde(default)]
+    pub level1_last_run: Option<DateTime<Utc>>,
+    /// Next scheduled Level 1 backup
+    #[serde(default)]
+    pub level1_next_run: Option<DateTime<Utc>>,
     /// Whether files at the destination should be AES-256-GCM encrypted
     #[serde(default)]
     pub encrypt: bool,

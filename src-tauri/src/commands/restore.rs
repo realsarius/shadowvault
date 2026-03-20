@@ -61,3 +61,74 @@ pub async fn restore_backup(
     log::info!("Restored {} → {}", backup_path, restore_to);
     Ok(())
 }
+
+/// Restores a block-level snapshot to the specified location.
+///
+/// `destination_path` — path to the destination (contains `.shadowvault/` directory)
+/// `snapshot_id`      — UUID of the snapshot to restore
+/// `restore_to`       — target path to restore into
+/// `password`         — optional plaintext password for encrypted backups
+#[tauri::command]
+#[specta::specta]
+pub async fn restore_block_backup(
+    destination_path: String,
+    snapshot_id: String,
+    restore_to: String,
+    password: Option<String>,
+) -> Result<(), String> {
+    for prefix in BLOCKED_RESTORE_PREFIXES {
+        if restore_to.starts_with(prefix) {
+            return Err(format!(
+                "Güvenlik ihlali: '{}' sistem dizinine geri yükleme yapılamaz.",
+                restore_to
+            ));
+        }
+    }
+
+    let store = Box::new(
+        crate::engine::block::store::LocalBlockStore::new(&destination_path),
+    );
+
+    // Derive encryption key from password if provided
+    let encryption_key = if let Some(ref pwd) = password {
+        // Load repo config to get the salt
+        let config = store
+            .load_config()
+            .await
+            .map_err(|e| format!("Repo config yüklenemedi: {}", e))?
+            .ok_or_else(|| "Repo config bulunamadı".to_string())?;
+
+        if let Some(ref enc) = config.encryption {
+            let key = crate::engine::copier::derive_backup_key_from_password(pwd, &enc.argon2_salt)
+                .map_err(|e| format!("Şifre çözme anahtarı türetilemedi: {}", e))?;
+            Some(key)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    use crate::engine::block::store::BlockStore;
+    let repo = crate::engine::block::repository::Repository::open_or_init(
+        store,
+        encryption_key,
+        None,
+    )
+    .await
+    .map_err(|e| format!("Repo açılamadı: {}", e))?;
+
+    let target_path = std::path::Path::new(&restore_to);
+    std::fs::create_dir_all(target_path).map_err(|e| e.to_string())?;
+
+    repo.restore(&snapshot_id, target_path)
+        .await
+        .map_err(|e| format!("Geri yükleme başarısız: {}", e))?;
+
+    log::info!(
+        "Block restore completed: snapshot {} → {}",
+        snapshot_id,
+        restore_to
+    );
+    Ok(())
+}

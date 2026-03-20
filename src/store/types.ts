@@ -69,6 +69,11 @@ export interface Destination {
   oauth_config: OAuthConfig | null;
   webdav_config: WebDavConfig | null;
   encrypt: boolean;
+  level1_enabled: boolean;
+  level1_schedule: ScheduleType | null;
+  level1_type: string;
+  level1_last_run: string | null;
+  level1_next_run: string | null;
 }
 
 export interface Source {
@@ -98,6 +103,8 @@ export interface LogEntry {
   error_message: string | null;
   trigger: TriggerType;
   checksum: string | null;
+  backup_level: string | null;
+  snapshot_id: string | null;
 }
 
 export interface AppSettings {

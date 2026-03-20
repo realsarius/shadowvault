@@ -154,6 +154,9 @@ pub async fn add_destination(
     webdav_config: Option<Value>,
     encrypt: Option<bool>,
     encrypt_password: Option<String>,
+    level1_enabled: Option<bool>,
+    level1_schedule: Option<Value>,
+    level1_type: Option<String>,
 ) -> Result<Destination, String> {
     validate_path(&path)?;
     let schedule: Schedule = serde_json::from_value(schedule).map_err(|e| e.to_string())?;
@@ -196,6 +199,14 @@ pub async fn add_destination(
         (None, None)
     };
 
+    let l1_enabled = level1_enabled.unwrap_or(false);
+    let l1_schedule: Option<Schedule> = if l1_enabled {
+        level1_schedule.and_then(|v| serde_json::from_value(v).ok())
+    } else {
+        None
+    };
+    let l1_type = level1_type.unwrap_or_else(|| "Cumulative".to_string());
+
     let dest = Destination {
         id: Uuid::new_v4().to_string(),
         source_id,
@@ -213,6 +224,11 @@ pub async fn add_destination(
         sftp_config: sftp_cfg,
         oauth_config: oauth_cfg,
         webdav_config: webdav_cfg,
+        level1_enabled: l1_enabled,
+        level1_schedule: l1_schedule,
+        level1_type: l1_type,
+        level1_last_run: None,
+        level1_next_run: None,
         encrypt: do_encrypt,
         encrypt_password_enc: enc_password,
         encrypt_salt: enc_salt,
@@ -222,12 +238,47 @@ pub async fn add_destination(
         .await
         .map_err(|e| e.to_string())?;
 
-    // If this is an OnChange destination, restart watcher to pick it up
-    if matches!(dest.schedule, Schedule::OnChange) {
-        let db = state.db.clone();
-        let running_jobs = state.running_jobs.clone();
-        let mut watcher = state.watcher.lock().await;
-        watcher.start(db, running_jobs, app_handle).await;
+    // Register the new destination with the scheduler or watcher
+    match &dest.schedule {
+        Schedule::OnChange => {
+            let db = state.db.clone();
+            let running_jobs = state.running_jobs.clone();
+            let mut watcher = state.watcher.lock().await;
+            watcher.start(db, running_jobs, app_handle).await;
+        }
+        Schedule::Interval { .. } | Schedule::Cron { .. } => {
+            let source = queries::get_source_by_id(&state.db, &dest.source_id)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("Source {} not found", dest.source_id))?;
+
+            let mut scheduler = state.scheduler.lock().await;
+            scheduler.schedule_destination(
+                dest.clone(),
+                source.clone(),
+                state.db.clone(),
+                state.running_jobs.clone(),
+                app_handle.clone(),
+                state.paused.clone(),
+            );
+
+            // Schedule Level 1 if enabled
+            if dest.level1_enabled {
+                if let Some(ref l1_sched) = dest.level1_schedule {
+                    if matches!(l1_sched, Schedule::Interval { .. } | Schedule::Cron { .. }) {
+                        scheduler.schedule_level1(
+                            dest.clone(),
+                            source,
+                            state.db.clone(),
+                            state.running_jobs.clone(),
+                            app_handle,
+                            state.paused.clone(),
+                        );
+                    }
+                }
+            }
+        }
+        Schedule::Manual => {}
     }
 
     Ok(dest)
@@ -251,11 +302,14 @@ pub async fn update_destination(
     webdav_config: Option<Value>,
     encrypt: Option<bool>,
     encrypt_password: Option<String>,
+    level1_enabled: Option<bool>,
+    level1_schedule: Option<Value>,
+    level1_type: Option<String>,
 ) -> Result<(), String> {
     validate_path(&path)?;
     // Fetch existing row to preserve source_id and run metadata
     let dest_row = sqlx::query(
-        "SELECT id, source_id, last_run, last_status, next_run, exclusions_json, incremental, encrypt, encrypt_password_enc, encrypt_salt FROM destinations WHERE id = ?",
+        "SELECT id, source_id, last_run, last_status, next_run, exclusions_json, incremental, encrypt, encrypt_password_enc, encrypt_salt, level1_enabled, level1_schedule_json, level1_type FROM destinations WHERE id = ?",
     )
     .bind(&id)
     .fetch_optional(state.db.as_ref())
@@ -337,6 +391,21 @@ pub async fn update_destination(
         (None, None)
     };
 
+    // Resolve level1 fields
+    let existing_l1_enabled: i64 = dest_row.try_get("level1_enabled").unwrap_or(0);
+    let existing_l1_schedule_json: Option<String> = dest_row.try_get("level1_schedule_json").unwrap_or(None);
+    let existing_l1_type: String = dest_row.try_get("level1_type").unwrap_or_else(|_| "Cumulative".to_string());
+
+    let resolved_l1_enabled = level1_enabled.unwrap_or(existing_l1_enabled != 0);
+    let resolved_l1_schedule: Option<Schedule> = if resolved_l1_enabled {
+        level1_schedule
+            .and_then(|v| serde_json::from_value(v).ok())
+            .or_else(|| existing_l1_schedule_json.and_then(|s| serde_json::from_str(&s).ok()))
+    } else {
+        None
+    };
+    let resolved_l1_type = level1_type.unwrap_or(existing_l1_type);
+
     let dest = Destination {
         id: id.clone(),
         source_id,
@@ -354,27 +423,68 @@ pub async fn update_destination(
         sftp_config: sftp_cfg,
         oauth_config: oauth_cfg,
         webdav_config: webdav_cfg,
+        level1_enabled: resolved_l1_enabled,
+        level1_schedule: resolved_l1_schedule,
+        level1_type: resolved_l1_type,
+        level1_last_run: None,
+        level1_next_run: None,
         encrypt: resolved_encrypt,
         encrypt_password_enc: resolved_enc_password,
         encrypt_salt: resolved_enc_salt,
     };
 
-    // Cancel existing scheduled task; re-added on next reload
+    // Cancel existing scheduled tasks (both Level 0 and Level 1)
     {
         let mut scheduler = state.scheduler.lock().await;
         scheduler.cancel(&id);
+        scheduler.cancel_level1(&id);
     }
 
     queries::update_destination(&state.db, &dest)
         .await
         .map_err(|e| e.to_string())?;
 
-    // Restart watcher if schedule involves OnChange
-    if is_onchange {
-        let db = state.db.clone();
-        let running_jobs = state.running_jobs.clone();
-        let mut watcher = state.watcher.lock().await;
-        watcher.start(db, running_jobs, app_handle).await;
+    // Re-register with scheduler or watcher based on new schedule
+    match &dest.schedule {
+        Schedule::OnChange => {
+            let db = state.db.clone();
+            let running_jobs = state.running_jobs.clone();
+            let mut watcher = state.watcher.lock().await;
+            watcher.start(db, running_jobs, app_handle).await;
+        }
+        Schedule::Interval { .. } | Schedule::Cron { .. } => {
+            let source = queries::get_source_by_id(&state.db, &dest.source_id)
+                .await
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| format!("Source {} not found", dest.source_id))?;
+
+            let mut scheduler = state.scheduler.lock().await;
+            scheduler.schedule_destination(
+                dest.clone(),
+                source.clone(),
+                state.db.clone(),
+                state.running_jobs.clone(),
+                app_handle.clone(),
+                state.paused.clone(),
+            );
+
+            // Schedule Level 1 if enabled
+            if dest.level1_enabled {
+                if let Some(ref l1_sched) = dest.level1_schedule {
+                    if matches!(l1_sched, Schedule::Interval { .. } | Schedule::Cron { .. }) {
+                        scheduler.schedule_level1(
+                            dest,
+                            source,
+                            state.db.clone(),
+                            state.running_jobs.clone(),
+                            app_handle,
+                            state.paused.clone(),
+                        );
+                    }
+                }
+            }
+        }
+        Schedule::Manual => {}
     }
 
     Ok(())

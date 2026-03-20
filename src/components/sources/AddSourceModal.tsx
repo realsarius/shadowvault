@@ -3,6 +3,7 @@ import { toast } from "solid-sonner";
 import { TbOutlineAlertTriangle } from "solid-icons/tb";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
+import { Toggle } from "../ui/Toggle";
 import { SchedulePicker } from "../schedule/SchedulePicker";
 import { UpgradeModal } from "../../pages/License";
 import { t } from "../../i18n";
@@ -69,6 +70,9 @@ export function AddSourceModal(props: Props) {
   const [schedule, setSchedule] = createSignal<ScheduleType>({ type: "Interval", value: { minutes: 60 } });
   const [maxVersions, setMaxVersions] = createSignal(10);
   const [naming, setNaming] = createSignal<"Timestamp" | "Index" | "Overwrite">("Timestamp");
+  const [level1Enabled, setLevel1Enabled] = createSignal(false);
+  const [level1Schedule, setLevel1Schedule] = createSignal<ScheduleType>({ type: "Interval", value: { minutes: 10 } });
+  const [level1Type, setLevel1Type] = createSignal<"Cumulative" | "Differential">("Cumulative");
   const [saving, setSaving] = createSignal(false);
   const [showUpgrade, setShowUpgrade] = createSignal(false);
   const isLicensed = () => store.licenseStatus === "valid";
@@ -90,6 +94,7 @@ export function AddSourceModal(props: Props) {
     setOauthConfig(null); setOauthStatus("idle"); setOauthError("");
     setSchedule({ type: "Interval", value: { minutes: 60 } });
     setMaxVersions(10); setNaming("Timestamp"); setSaving(false);
+    setLevel1Enabled(false); setLevel1Schedule({ type: "Interval", value: { minutes: 10 } }); setLevel1Type("Cumulative");
   };
 
   createEffect(() => {
@@ -218,7 +223,7 @@ export function AddSourceModal(props: Props) {
       const dt = destType();
 
       if (dt === "Local") {
-        await api.destinations.add(source.id, destPath(), schedule(), retention(), [], false, "Local", null, null, null);
+        await api.destinations.add(source.id, destPath(), schedule(), retention(), [], false, "Local", null, null, null, false, null, null, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       } else if (dt === "Sftp") {
         const sftpConfig: SftpConfig = {
           host: sftpHost().trim(),
@@ -229,7 +234,7 @@ export function AddSourceModal(props: Props) {
           private_key: sftpAuthType() === "key" ? sftpKeyPath().trim() : undefined,
           remote_path: sftpRemotePath().trim() || "/",
         };
-        await api.destinations.add(source.id, destDisplayPath(), schedule(), retention(), [], false, "Sftp", null, sftpConfig, null);
+        await api.destinations.add(source.id, destDisplayPath(), schedule(), retention(), [], false, "Sftp", null, sftpConfig, null, false, null, null, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       } else if (dt === "WebDav") {
         const webdavConfig: WebDavConfig = {
           url: webdavUrl().trim(),
@@ -237,9 +242,9 @@ export function AddSourceModal(props: Props) {
           password: webdavPassword().trim(),
           root_path: webdavRootPath().trim() || "/ShadowVault",
         };
-        await api.destinations.add(source.id, destDisplayPath(), schedule(), retention(), [], false, "WebDav", null, null, null, false, null, webdavConfig);
+        await api.destinations.add(source.id, destDisplayPath(), schedule(), retention(), [], false, "WebDav", null, null, null, false, null, webdavConfig, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       } else if (dt === "OneDrive" || dt === "GoogleDrive" || dt === "Dropbox") {
-        await api.destinations.add(source.id, destDisplayPath(), schedule(), retention(), [], false, dt, null, null, oauthConfig());
+        await api.destinations.add(source.id, destDisplayPath(), schedule(), retention(), [], false, dt, null, null, oauthConfig(), false, null, null, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       } else {
         const prov = cloudProvider() as "S3" | "R2";
         const cloudConfig: S3Config = {
@@ -251,7 +256,7 @@ export function AddSourceModal(props: Props) {
           endpoint_url: prov === "R2" ? r2Endpoint() : undefined,
           prefix: prefix().trim(),
         };
-        await api.destinations.add(source.id, destDisplayPath(), schedule(), retention(), [], false, prov as DestinationType, cloudConfig, null);
+        await api.destinations.add(source.id, destDisplayPath(), schedule(), retention(), [], false, prov as DestinationType, cloudConfig, null, null, false, null, null, level1Enabled(), level1Enabled() ? level1Schedule() : null, level1Type());
       }
 
       props.onCreated();
@@ -601,31 +606,58 @@ export function AddSourceModal(props: Props) {
         </Show>
 
         <div class={styles.field}>
-          <label class={styles.label}>{t("add_dest_schedule")}</label>
+          <label class={styles.label}>{t("schedule_level0_label")}</label>
+          <div class={styles.hint}>{t("schedule_level0_desc")}</div>
           <div class={styles.scheduleBox}>
             <SchedulePicker
               value={schedule()}
               onChange={setSchedule}
               isLicensed={isLicensed()}
               onProRequired={() => setShowUpgrade(true)}
+              allowedTypes={["Interval", "Cron"]}
             />
           </div>
         </div>
-        <div class={styles.retentionRow}>
-          <div class={styles.retentionCol}>
-            <label class={styles.label}>{t("add_dest_max_ver")}</label>
-            <input class={styles.input} type="number" min={1} max={999} value={maxVersions()}
-              onInput={(e) => setMaxVersions(parseInt(e.currentTarget.value) || 10)} />
-          </div>
-          <div class={styles.retentionCol}>
-            <label class={styles.label}>{t("add_dest_naming")}</label>
-            <select class={styles.input} value={naming()} onChange={(e) => setNaming(e.currentTarget.value as any)}>
-              <option value="Timestamp">{t("naming_timestamp")}</option>
-              <option value="Index">{t("naming_index")}</option>
-              <option value="Overwrite">{t("naming_overwrite")}</option>
-            </select>
-          </div>
+
+        <div class={styles.field}>
+          <label class={styles.label}>{t("add_dest_max_sets")}</label>
+          <div class={styles.hint}>{t("add_dest_max_sets_desc")}</div>
+          <input class={styles.input} type="number" min={1} max={999} value={maxVersions()} style={{ "max-width": "120px" }}
+            onInput={(e) => setMaxVersions(parseInt(e.currentTarget.value) || 10)} />
         </div>
+
+        <div class={styles.field}>
+          <Toggle value={level1Enabled()} onChange={setLevel1Enabled} label={t("add_dest_level1_toggle")} />
+          <div class={styles.hint}>{t("add_dest_level1_desc")}</div>
+        </div>
+
+        <Show when={level1Enabled()}>
+          <div class={styles.field}>
+            <label class={styles.label}>{t("add_dest_level1_schedule")}</label>
+            <div class={styles.scheduleBox}>
+              <SchedulePicker
+                value={level1Schedule()}
+                onChange={setLevel1Schedule}
+                isLicensed={isLicensed()}
+                onProRequired={() => setShowUpgrade(true)}
+                allowedTypes={["Interval", "Cron"]}
+              />
+            </div>
+          </div>
+          <div class={styles.field}>
+            <label class={styles.label}>{t("add_dest_level1_type")}</label>
+            <div style={{ display: "flex", gap: "16px" }}>
+              <label style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer" }}>
+                <input type="radio" checked={level1Type() === "Cumulative"} onChange={() => setLevel1Type("Cumulative")} />
+                Cumulative ({t("add_dest_level1_cum_desc")})
+              </label>
+              <label style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer" }}>
+                <input type="radio" checked={level1Type() === "Differential"} onChange={() => setLevel1Type("Differential")} />
+                Differential ({t("add_dest_level1_diff_desc")})
+              </label>
+            </div>
+          </div>
+        </Show>
       </Show>
 
       {/* Step 3 */}

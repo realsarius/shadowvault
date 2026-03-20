@@ -11,6 +11,7 @@ const RUN_NOW_COOLDOWN_SECS: u64 = 5;
 #[specta::specta]
 pub async fn run_now(
     destination_id: String,
+    backup_level: Option<String>,
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
@@ -77,11 +78,19 @@ pub async fn run_now(
 
         let trigger = "Manual".to_string();
         let source_name = source.name.clone();
+        let resolved_level = match backup_level.as_deref() {
+            Some("Level0") => Some(crate::engine::block::snapshot::BackupLevel::Level0),
+            Some("Level1Cumulative") => Some(crate::engine::block::snapshot::BackupLevel::Level1Cumulative),
+            Some("Level1Differential") => Some(crate::engine::block::snapshot::BackupLevel::Level1Differential),
+            _ => None,
+        };
+
         let job = CopyJob {
             source,
             destination: dest,
             trigger: trigger.clone(),
             app: Some(app_handle_start.clone()),
+            backup_level: resolved_level,
         };
 
         match job.execute(db).await {
@@ -188,6 +197,7 @@ pub async fn run_source_now(
                 destination: dest,
                 trigger: trigger.clone(),
                 app: Some(app_handle_start2.clone()),
+                backup_level: None,
             };
 
             match job.execute(db).await {

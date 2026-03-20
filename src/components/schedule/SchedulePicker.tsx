@@ -9,10 +9,17 @@ interface Props {
   onChange: (s: ScheduleType) => void;
   isLicensed?: boolean;
   onProRequired?: () => void;
+  /** Which schedule types to show. Defaults to all. */
+  allowedTypes?: ScheduleType["type"][];
+  /** Optional label shown above the picker */
+  label?: string;
 }
+
+const ALL_TYPES: ScheduleType["type"][] = ["Interval", "Cron", "OnChange", "Manual"];
 
 export function SchedulePicker(props: Props) {
   const type = () => props.value.type;
+  const types = () => props.allowedTypes ?? ALL_TYPES;
 
   const isProLocked = (t_: ScheduleType["type"]) =>
     PRO_TYPES.includes(t_) && props.isLicensed === false;
@@ -30,7 +37,7 @@ export function SchedulePicker(props: Props) {
 
   return (
     <div class={styles.picker}>
-      {(["Interval", "Cron", "OnChange", "Manual"] as const).map((tp) => (
+      {types().map((tp) => (
         <label class={`${styles.option} ${isProLocked(tp) ? styles.optionLocked : ""}`}>
           <input type="radio" checked={type() === tp} onChange={() => setType(tp)} />
           {tp === "Interval" && t("schedule_interval")}

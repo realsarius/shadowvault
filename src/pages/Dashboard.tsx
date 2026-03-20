@@ -1,4 +1,4 @@
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { TbOutlineFolder, TbOutlineFile, TbOutlineArrowRight } from "solid-icons/tb";
 import { store } from "../store";
 import { api } from "../api/tauri";
@@ -68,8 +68,21 @@ export function Dashboard() {
     return m;
   });
 
-  const handleRunSourceNow = async (sourceId: string) => {
-    try { await api.jobs.runSourceNow(sourceId); } catch { /* handled via events */ }
+  const [runMenuSourceId, setRunMenuSourceId] = createSignal<string | null>(null);
+
+  const handleRunSourceNow = async (sourceId: string, level?: string) => {
+    setRunMenuSourceId(null);
+    if (level) {
+      // Run each destination with the specified level
+      const source = store.sources.find(s => s.id === sourceId);
+      if (source) {
+        for (const dest of source.destinations) {
+          try { await api.jobs.runNow(dest.id, level); } catch { /* handled via events */ }
+        }
+      }
+    } else {
+      try { await api.jobs.runSourceNow(sourceId); } catch { /* handled via events */ }
+    }
   };
 
   return (
@@ -127,10 +140,40 @@ export function Dashboard() {
                       <div class={styles.metaItemLabel}>{t("dash_next_run")}</div>
                       <div class={styles.metaItemVal}>{formatDate(lastDest?.next_run ?? null)}</div>
                     </div>
-                    <div class={styles.destCount}>{source.destinations.length} {t("dash_targets")}</div>
-                    <Button variant="ghost" size="sm" onClick={() => handleRunSourceNow(source.id)} disabled={isRunning()}>
-                      {isRunning() ? t("dash_running") : t("dash_run_now")}
-                    </Button>
+                    <div class={styles.destCount}>
+                      {source.destinations.length} {t("dash_targets")}
+                      {source.destinations.some(d => d.level1_enabled) && <span style={{ "margin-left": "6px", "font-size": "11px", opacity: 0.7 }}>L0+L1</span>}
+                    </div>
+                    <div style={{ position: "relative", display: "inline-block" }}>
+                      <Button variant="ghost" size="sm" disabled={isRunning()}
+                        onClick={() => setRunMenuSourceId(runMenuSourceId() === source.id ? null : source.id)}>
+                        {isRunning() ? t("dash_running") : t("dash_run_now")} ▾
+                      </Button>
+                      <Show when={runMenuSourceId() === source.id}>
+                        <div style={{
+                          position: "absolute", right: "0", top: "100%", "min-width": "180px", "z-index": "100",
+                          background: "var(--bg-secondary, #1e1e2e)", border: "1px solid var(--border, #333)",
+                          "border-radius": "8px", "box-shadow": "0 4px 12px rgba(0,0,0,0.3)", padding: "4px 0",
+                        }}>
+                          <button onClick={() => handleRunSourceNow(source.id, "Level0")} style={{
+                            display: "flex", "align-items": "center", gap: "8px", width: "100%", padding: "8px 12px",
+                            background: "none", border: "none", color: "var(--text-primary, #cdd6f4)", cursor: "pointer",
+                            "font-size": "13px", "text-align": "left",
+                          }}>
+                            Level 0 (Full)
+                          </button>
+                          <Show when={source.destinations.some(d => d.level1_enabled)}>
+                            <button onClick={() => handleRunSourceNow(source.id, "Level1Cumulative")} style={{
+                              display: "flex", "align-items": "center", gap: "8px", width: "100%", padding: "8px 12px",
+                              background: "none", border: "none", color: "var(--text-primary, #cdd6f4)", cursor: "pointer",
+                              "font-size": "13px", "text-align": "left",
+                            }}>
+                              Level 1 (Incremental)
+                            </button>
+                          </Show>
+                        </div>
+                      </Show>
+                    </div>
                   </div>
                 </div>
               );

@@ -180,7 +180,7 @@ pub async fn get_destination_by_id(
     dest_id: &str,
 ) -> anyhow::Result<Option<Destination>> {
     let row = sqlx::query(
-        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt
+        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt, level1_enabled, level1_schedule_json, level1_type, level1_last_run, level1_next_run
          FROM destinations WHERE id = ?"
     )
     .bind(dest_id)
@@ -256,6 +256,19 @@ pub async fn get_destination_by_id(
                 row.try_get("encrypt_password_enc").unwrap_or(None);
             let encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
 
+            let level1_enabled_int: i64 = row.try_get("level1_enabled").unwrap_or(0);
+            let level1_schedule_json_opt: Option<String> =
+                row.try_get("level1_schedule_json").unwrap_or(None);
+            let level1_type: String = row
+                .try_get("level1_type")
+                .unwrap_or_else(|_| "Cumulative".to_string());
+            let level1_schedule = level1_schedule_json_opt
+                .and_then(|s| serde_json::from_str::<Schedule>(&s).ok());
+            let level1_last_run_str: Option<String> = row.try_get("level1_last_run").unwrap_or(None);
+            let level1_next_run_str: Option<String> = row.try_get("level1_next_run").unwrap_or(None);
+            let level1_last_run = level1_last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+            let level1_next_run = level1_next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
             Ok(Some(Destination {
                 id,
                 source_id,
@@ -273,6 +286,11 @@ pub async fn get_destination_by_id(
                 sftp_config,
                 oauth_config,
                 webdav_config,
+                level1_enabled: level1_enabled_int != 0,
+                level1_schedule,
+                level1_type,
+                level1_last_run,
+                level1_next_run,
                 encrypt: encrypt_int != 0,
                 encrypt_password_enc,
                 encrypt_salt,
@@ -305,9 +323,14 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
         None
     };
 
+    let level1_schedule_json = dest
+        .level1_schedule
+        .as_ref()
+        .map(|s| serde_json::to_string(s).unwrap_or_default());
+
     sqlx::query(
-        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO destinations (id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt, level1_enabled, level1_schedule_json, level1_type, level1_last_run, level1_next_run)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&dest.id)
     .bind(&dest.source_id)
@@ -325,6 +348,11 @@ pub async fn insert_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     .bind(if dest.encrypt { 1i64 } else { 0i64 })
     .bind(&dest.encrypt_password_enc)
     .bind(&dest.encrypt_salt)
+    .bind(if dest.level1_enabled { 1i64 } else { 0i64 })
+    .bind(&level1_schedule_json)
+    .bind(&dest.level1_type)
+    .bind(dest.level1_last_run.map(|dt| dt.to_rfc3339()))
+    .bind(dest.level1_next_run.map(|dt| dt.to_rfc3339()))
     .execute(pool)
     .await?;
 
@@ -355,8 +383,13 @@ pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
         None
     };
 
+    let level1_schedule_json = dest
+        .level1_schedule
+        .as_ref()
+        .map(|s| serde_json::to_string(s).unwrap_or_default());
+
     sqlx::query(
-        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, exclusions_json = ?, enabled = ?, incremental = ?, last_run = ?, last_status = ?, next_run = ?, destination_type = ?, cloud_config_json = ?, encrypt = ?, encrypt_password_enc = ?, encrypt_salt = ?
+        "UPDATE destinations SET path = ?, schedule_json = ?, retention_json = ?, exclusions_json = ?, enabled = ?, incremental = ?, last_run = ?, last_status = ?, next_run = ?, destination_type = ?, cloud_config_json = ?, encrypt = ?, encrypt_password_enc = ?, encrypt_salt = ?, level1_enabled = ?, level1_schedule_json = ?, level1_type = ?, level1_last_run = ?, level1_next_run = ?
          WHERE id = ?"
     )
     .bind(&dest.path)
@@ -373,6 +406,11 @@ pub async fn update_destination(pool: &SqlitePool, dest: &Destination) -> anyhow
     .bind(if dest.encrypt { 1i64 } else { 0i64 })
     .bind(&dest.encrypt_password_enc)
     .bind(&dest.encrypt_salt)
+    .bind(if dest.level1_enabled { 1i64 } else { 0i64 })
+    .bind(&level1_schedule_json)
+    .bind(&dest.level1_type)
+    .bind(dest.level1_last_run.map(|dt| dt.to_rfc3339()))
+    .bind(dest.level1_next_run.map(|dt| dt.to_rfc3339()))
     .bind(&dest.id)
     .execute(pool)
     .await?;
@@ -394,7 +432,7 @@ pub async fn get_destinations_for_source(
     source_id: &str,
 ) -> anyhow::Result<Vec<Destination>> {
     let rows = sqlx::query(
-        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt
+        "SELECT id, source_id, path, schedule_json, retention_json, exclusions_json, enabled, incremental, last_run, last_status, next_run, destination_type, cloud_config_json, encrypt, encrypt_password_enc, encrypt_salt, level1_enabled, level1_schedule_json, level1_type, level1_last_run, level1_next_run
          FROM destinations WHERE source_id = ? ORDER BY id ASC"
     )
     .bind(source_id)
@@ -469,6 +507,19 @@ pub async fn get_destinations_for_source(
             row.try_get("encrypt_password_enc").unwrap_or(None);
         let encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
 
+        let level1_enabled_int: i64 = row.try_get("level1_enabled").unwrap_or(0);
+        let level1_schedule_json_opt: Option<String> =
+            row.try_get("level1_schedule_json").unwrap_or(None);
+        let level1_type_val: String = row
+            .try_get("level1_type")
+            .unwrap_or_else(|_| "Cumulative".to_string());
+        let level1_schedule = level1_schedule_json_opt
+            .and_then(|s| serde_json::from_str::<Schedule>(&s).ok());
+        let level1_last_run_str: Option<String> = row.try_get("level1_last_run").unwrap_or(None);
+        let level1_next_run_str: Option<String> = row.try_get("level1_next_run").unwrap_or(None);
+        let level1_last_run = level1_last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+        let level1_next_run = level1_next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
         destinations.push(Destination {
             id,
             source_id,
@@ -486,6 +537,11 @@ pub async fn get_destinations_for_source(
             sftp_config,
             oauth_config,
             webdav_config,
+            level1_enabled: level1_enabled_int != 0,
+            level1_schedule,
+            level1_type: level1_type_val,
+            level1_last_run,
+            level1_next_run,
             encrypt: encrypt_int != 0,
             encrypt_password_enc,
             encrypt_salt,
@@ -503,7 +559,8 @@ pub async fn get_all_active_destinations(
             s.id as s_id, s.name as s_name, s.path as s_path, s.source_type, s.enabled as s_enabled, s.created_at,
             d.id as d_id, d.source_id, d.path as d_path, d.schedule_json, d.retention_json, d.exclusions_json,
             d.enabled as d_enabled, d.incremental, d.last_run, d.last_status, d.next_run,
-            d.destination_type, d.cloud_config_json, d.encrypt, d.encrypt_password_enc, d.encrypt_salt
+            d.destination_type, d.cloud_config_json, d.encrypt, d.encrypt_password_enc, d.encrypt_salt,
+            d.level1_enabled, d.level1_schedule_json, d.level1_type, d.level1_last_run, d.level1_next_run
          FROM sources s
          JOIN destinations d ON d.source_id = s.id
          WHERE s.enabled = 1 AND d.enabled = 1"
@@ -599,6 +656,19 @@ pub async fn get_all_active_destinations(
             row.try_get("encrypt_password_enc").unwrap_or(None);
         let d_encrypt_salt: Option<String> = row.try_get("encrypt_salt").unwrap_or(None);
 
+        let d_level1_enabled_int: i64 = row.try_get("level1_enabled").unwrap_or(0);
+        let d_level1_schedule_json_opt: Option<String> =
+            row.try_get("level1_schedule_json").unwrap_or(None);
+        let d_level1_type: String = row
+            .try_get("level1_type")
+            .unwrap_or_else(|_| "Cumulative".to_string());
+        let d_level1_schedule = d_level1_schedule_json_opt
+            .and_then(|s| serde_json::from_str::<Schedule>(&s).ok());
+        let d_level1_last_run_str: Option<String> = row.try_get("level1_last_run").unwrap_or(None);
+        let d_level1_next_run_str: Option<String> = row.try_get("level1_next_run").unwrap_or(None);
+        let d_level1_last_run = d_level1_last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+        let d_level1_next_run = d_level1_next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
+
         let destination = Destination {
             id: d_id,
             source_id,
@@ -616,6 +686,11 @@ pub async fn get_all_active_destinations(
             sftp_config,
             oauth_config,
             webdav_config,
+            level1_enabled: d_level1_enabled_int != 0,
+            level1_schedule: d_level1_schedule,
+            level1_type: d_level1_type,
+            level1_last_run: d_level1_last_run,
+            level1_next_run: d_level1_next_run,
             encrypt: d_encrypt_int != 0,
             encrypt_password_enc: d_encrypt_password_enc,
             encrypt_salt: d_encrypt_salt,
@@ -653,6 +728,23 @@ pub async fn update_destination_run_status(
     sqlx::query("UPDATE destinations SET last_run = ?, last_status = ?, next_run = ? WHERE id = ?")
         .bind(last_run.to_rfc3339())
         .bind(status)
+        .bind(next_run_str)
+        .bind(dest_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+pub async fn update_destination_level1_run_status(
+    pool: &SqlitePool,
+    dest_id: &str,
+    last_run: DateTime<Utc>,
+    next_run: Option<DateTime<Utc>>,
+) -> anyhow::Result<()> {
+    let next_run_str = next_run.map(|dt| dt.to_rfc3339());
+    sqlx::query("UPDATE destinations SET level1_last_run = ?, level1_next_run = ? WHERE id = ?")
+        .bind(last_run.to_rfc3339())
         .bind(next_run_str)
         .bind(dest_id)
         .execute(pool)

@@ -33,10 +33,30 @@ pub fn notify_copy_result(
     trigger: &str,
     error: Option<&str>,
 ) {
+    notify_copy_result_with_level(app, source_name, files_copied, bytes_copied, trigger, error, None, None);
+}
+
+pub fn notify_copy_result_with_level(
+    app: &AppHandle,
+    source_name: &str,
+    files_copied: Option<i32>,
+    bytes_copied: Option<i64>,
+    trigger: &str,
+    error: Option<&str>,
+    backup_level: Option<&str>,
+    savings_pct: Option<u32>,
+) {
     // Skip notifications for manual triggers — user initiated and is watching
     if trigger == "Manual" && error.is_none() {
         return;
     }
+
+    let level_tag = match backup_level {
+        Some("Level0") => "L0 Full",
+        Some("Level1Cumulative") => "L1 Cumulative",
+        Some("Level1Differential") => "L1 Differential",
+        _ => "",
+    };
 
     let (title, body) = match error {
         Some(err) => (
@@ -51,9 +71,17 @@ pub fn notify_copy_result(
             } else {
                 format!("{} KB", bytes_copied.unwrap_or(0) / 1024)
             };
+            let savings = savings_pct
+                .map(|p| format!(", %{} tasarruf", p))
+                .unwrap_or_default();
+            let level_str = if level_tag.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", level_tag)
+            };
             (
-                "ShadowVault — Yedekleme tamamlandı".to_string(),
-                format!("{}: {} dosya, {}", source_name, files, size_str),
+                format!("ShadowVault — Yedekleme tamamlandı{}", level_str),
+                format!("{}: {} dosya, {}{}", source_name, files, size_str, savings),
             )
         }
     };
