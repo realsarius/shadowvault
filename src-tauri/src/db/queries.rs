@@ -262,10 +262,12 @@ pub async fn get_destination_by_id(
             let level1_type: String = row
                 .try_get("level1_type")
                 .unwrap_or_else(|_| "Cumulative".to_string());
-            let level1_schedule = level1_schedule_json_opt
-                .and_then(|s| serde_json::from_str::<Schedule>(&s).ok());
-            let level1_last_run_str: Option<String> = row.try_get("level1_last_run").unwrap_or(None);
-            let level1_next_run_str: Option<String> = row.try_get("level1_next_run").unwrap_or(None);
+            let level1_schedule =
+                level1_schedule_json_opt.and_then(|s| serde_json::from_str::<Schedule>(&s).ok());
+            let level1_last_run_str: Option<String> =
+                row.try_get("level1_last_run").unwrap_or(None);
+            let level1_next_run_str: Option<String> =
+                row.try_get("level1_next_run").unwrap_or(None);
             let level1_last_run = level1_last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
             let level1_next_run = level1_next_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
 
@@ -513,8 +515,8 @@ pub async fn get_destinations_for_source(
         let level1_type_val: String = row
             .try_get("level1_type")
             .unwrap_or_else(|_| "Cumulative".to_string());
-        let level1_schedule = level1_schedule_json_opt
-            .and_then(|s| serde_json::from_str::<Schedule>(&s).ok());
+        let level1_schedule =
+            level1_schedule_json_opt.and_then(|s| serde_json::from_str::<Schedule>(&s).ok());
         let level1_last_run_str: Option<String> = row.try_get("level1_last_run").unwrap_or(None);
         let level1_next_run_str: Option<String> = row.try_get("level1_next_run").unwrap_or(None);
         let level1_last_run = level1_last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
@@ -662,8 +664,8 @@ pub async fn get_all_active_destinations(
         let d_level1_type: String = row
             .try_get("level1_type")
             .unwrap_or_else(|_| "Cumulative".to_string());
-        let d_level1_schedule = d_level1_schedule_json_opt
-            .and_then(|s| serde_json::from_str::<Schedule>(&s).ok());
+        let d_level1_schedule =
+            d_level1_schedule_json_opt.and_then(|s| serde_json::from_str::<Schedule>(&s).ok());
         let d_level1_last_run_str: Option<String> = row.try_get("level1_last_run").unwrap_or(None);
         let d_level1_next_run_str: Option<String> = row.try_get("level1_next_run").unwrap_or(None);
         let d_level1_last_run = d_level1_last_run_str.and_then(|s| s.parse::<DateTime<Utc>>().ok());
@@ -762,10 +764,12 @@ pub async fn insert_log_entry(
     started_at: DateTime<Utc>,
     status: &str,
     trigger: &str,
+    backup_level: Option<&str>,
+    snapshot_id: Option<&str>,
 ) -> anyhow::Result<i64> {
     let result = sqlx::query(
-        "INSERT INTO copy_logs (source_id, destination_id, source_path, destination_path, started_at, status, trigger)
-         VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO copy_logs (source_id, destination_id, source_path, destination_path, started_at, status, trigger, backup_level, snapshot_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(source_id)
     .bind(destination_id)
@@ -774,6 +778,8 @@ pub async fn insert_log_entry(
     .bind(started_at.to_rfc3339())
     .bind(status)
     .bind(trigger)
+    .bind(backup_level)
+    .bind(snapshot_id)
     .execute(pool)
     .await?;
 
@@ -789,9 +795,13 @@ pub async fn update_log_entry_completed(
     files_copied: Option<i32>,
     error_message: Option<&str>,
     checksum: Option<&str>,
+    backup_level: Option<&str>,
+    snapshot_id: Option<&str>,
 ) -> anyhow::Result<()> {
     sqlx::query(
-        "UPDATE copy_logs SET ended_at = ?, status = ?, bytes_copied = ?, files_copied = ?, error_message = ?, checksum = ? WHERE id = ?"
+        "UPDATE copy_logs
+         SET ended_at = ?, status = ?, bytes_copied = ?, files_copied = ?, error_message = ?, checksum = ?, backup_level = ?, snapshot_id = ?
+         WHERE id = ?"
     )
     .bind(ended_at.to_rfc3339())
     .bind(status)
@@ -799,11 +809,56 @@ pub async fn update_log_entry_completed(
     .bind(files_copied)
     .bind(error_message)
     .bind(checksum)
+    .bind(backup_level)
+    .bind(snapshot_id)
     .bind(log_id)
     .execute(pool)
     .await?;
 
     Ok(())
+}
+
+pub async fn insert_skipped_log_entry(
+    pool: &SqlitePool,
+    source_id: &str,
+    destination_id: &str,
+    source_path: &str,
+    destination_path: &str,
+    trigger: &str,
+    reason: &str,
+    backup_level: Option<&str>,
+    snapshot_id: Option<&str>,
+) -> anyhow::Result<i64> {
+    let now = Utc::now();
+    let log_id = insert_log_entry(
+        pool,
+        source_id,
+        destination_id,
+        source_path,
+        destination_path,
+        now,
+        "Skipped",
+        trigger,
+        backup_level,
+        snapshot_id,
+    )
+    .await?;
+
+    update_log_entry_completed(
+        pool,
+        log_id,
+        now,
+        "Skipped",
+        None,
+        None,
+        Some(reason),
+        None,
+        backup_level,
+        snapshot_id,
+    )
+    .await?;
+
+    Ok(log_id)
 }
 
 pub async fn cancel_running_logs(
@@ -833,7 +888,7 @@ pub async fn get_logs(
     offset: Option<i64>,
 ) -> anyhow::Result<Vec<crate::models::LogEntry>> {
     let mut query_str = String::from(
-        "SELECT id, source_id, destination_id, source_path, destination_path, started_at, ended_at, status, bytes_copied, files_copied, error_message, trigger, checksum
+        "SELECT id, source_id, destination_id, source_path, destination_path, started_at, ended_at, status, bytes_copied, files_copied, error_message, trigger, checksum, backup_level, snapshot_id
          FROM copy_logs WHERE 1=1"
     );
 
@@ -916,6 +971,8 @@ pub async fn get_logs(
         let error_message: Option<String> = row.try_get("error_message")?;
         let trigger: String = row.try_get("trigger")?;
         let checksum: Option<String> = row.try_get("checksum").unwrap_or(None);
+        let backup_level: Option<String> = row.try_get("backup_level").unwrap_or(None);
+        let snapshot_id: Option<String> = row.try_get("snapshot_id").unwrap_or(None);
 
         let started_at = started_at_str
             .parse::<DateTime<Utc>>()
@@ -936,6 +993,8 @@ pub async fn get_logs(
             error_message,
             trigger,
             checksum,
+            backup_level,
+            snapshot_id,
         });
     }
 
@@ -1099,6 +1158,23 @@ pub async fn get_setting(pool: &SqlitePool, key: &str) -> anyhow::Result<Option<
             Ok(Some(value))
         }
     }
+}
+
+pub async fn get_all_settings(
+    pool: &SqlitePool,
+) -> anyhow::Result<std::collections::HashMap<String, String>> {
+    let rows = sqlx::query("SELECT key, value FROM settings ORDER BY key ASC")
+        .fetch_all(pool)
+        .await?;
+
+    let mut out = std::collections::HashMap::new();
+    for row in rows {
+        use sqlx::Row;
+        let key: String = row.try_get("key")?;
+        let value: String = row.try_get("value")?;
+        out.insert(key, value);
+    }
+    Ok(out)
 }
 
 pub async fn upsert_setting(pool: &SqlitePool, key: &str, value: &str) -> anyhow::Result<()> {

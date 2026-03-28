@@ -1,17 +1,17 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use tokio::task::AbortHandle;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
+use tokio::task::AbortHandle;
 
-use crate::models::{Source, Destination, Schedule};
-use crate::engine::copier::CopyJob;
 use crate::db::queries;
+use crate::engine::copier::CopyJob;
+use crate::models::{Destination, Schedule, Source};
 
 pub struct Scheduler {
     tasks: HashMap<String, AbortHandle>,
@@ -156,6 +156,23 @@ impl Scheduler {
                         "Destination {} is already running, skipping scheduled run",
                         dest.id
                     );
+                    let db_skip = db.clone();
+                    let source_skip = source.clone();
+                    let dest_skip = dest.clone();
+                    tokio::spawn(async move {
+                        let _ = queries::insert_skipped_log_entry(
+                            &db_skip,
+                            &source_skip.id,
+                            &dest_skip.id,
+                            &source_skip.path,
+                            &dest_skip.path,
+                            "Scheduled",
+                            "Skipped: destination already has a running job",
+                            Some("Level0"),
+                            None,
+                        )
+                        .await;
+                    });
                 } else {
                     let db_clone = db.clone();
                     let source_clone = source.clone();
@@ -170,11 +187,14 @@ impl Scheduler {
                     let sched_ah_start = app_handle_clone.clone();
 
                     let job_handle = tokio::task::spawn(async move {
-                        let _ = sched_ah_start.emit("copy-started", serde_json::json!({
-                            "destination_id": sched_dest_id_start,
-                            "source_path": sched_src_path,
-                            "destination_path": sched_dst_path,
-                        }));
+                        let _ = sched_ah_start.emit(
+                            "copy-started",
+                            serde_json::json!({
+                                "destination_id": sched_dest_id_start,
+                                "source_path": sched_src_path,
+                                "destination_path": sched_dst_path,
+                            }),
+                        );
 
                         let trigger = "Scheduled".to_string();
                         let source_name = source_clone.name.clone();
@@ -233,9 +253,7 @@ impl Scheduler {
 
                 // Sleep until next scheduled run
                 let sleep_duration = match &schedule_clone {
-                    Schedule::Interval { minutes } => {
-                        Duration::from_secs(*minutes as u64 * 60)
-                    }
+                    Schedule::Interval { minutes } => Duration::from_secs(*minutes as u64 * 60),
                     Schedule::Cron { expression } => next_cron_duration(expression),
                     _ => break,
                 };
@@ -288,6 +306,29 @@ impl Scheduler {
                         "Level 1 skipped for {} — another backup is running",
                         dest.id
                     );
+                    let db_skip = db.clone();
+                    let source_skip = source.clone();
+                    let dest_skip = dest.clone();
+                    let l1_type_skip = l1_type.clone();
+                    tokio::spawn(async move {
+                        let backup_level = if l1_type_skip == "Differential" {
+                            "Level1Differential"
+                        } else {
+                            "Level1Cumulative"
+                        };
+                        let _ = queries::insert_skipped_log_entry(
+                            &db_skip,
+                            &source_skip.id,
+                            &dest_skip.id,
+                            &source_skip.path,
+                            &dest_skip.path,
+                            "Scheduled",
+                            "Skipped: destination already has a running job",
+                            Some(backup_level),
+                            None,
+                        )
+                        .await;
+                    });
                 } else {
                     let db_clone = db.clone();
                     let db_status = db.clone();
@@ -306,15 +347,20 @@ impl Scheduler {
                     let sched_ah_start = app_handle_clone.clone();
 
                     let job_handle = tokio::task::spawn(async move {
-                        let _ = sched_ah_start.emit("copy-started", serde_json::json!({
-                            "destination_id": sched_dest_id_start,
-                            "source_path": sched_src_path,
-                            "destination_path": sched_dst_path,
-                            "level": "Level1",
-                        }));
+                        let _ = sched_ah_start.emit(
+                            "copy-started",
+                            serde_json::json!({
+                                "destination_id": sched_dest_id_start,
+                                "source_path": sched_src_path,
+                                "destination_path": sched_dst_path,
+                                "level": "Level1",
+                            }),
+                        );
 
                         let backup_level = match l1_type_clone.as_str() {
-                            "Differential" => crate::engine::block::snapshot::BackupLevel::Level1Differential,
+                            "Differential" => {
+                                crate::engine::block::snapshot::BackupLevel::Level1Differential
+                            }
                             _ => crate::engine::block::snapshot::BackupLevel::Level1Cumulative,
                         };
 
@@ -370,16 +416,24 @@ impl Scheduler {
                         // Update level1_last_run and level1_next_run
                         let now = chrono::Utc::now();
                         let l1_next = match &l1_schedule_clone {
-                            Schedule::Interval { minutes } => Some(now + chrono::Duration::minutes(*minutes as i64)),
+                            Schedule::Interval { minutes } => {
+                                Some(now + chrono::Duration::minutes(*minutes as i64))
+                            }
                             Schedule::Cron { expression } => {
                                 use std::str::FromStr;
-                                cron::Schedule::from_str(expression).ok().and_then(|s| s.after(&now).next())
+                                cron::Schedule::from_str(expression)
+                                    .ok()
+                                    .and_then(|s| s.after(&now).next())
                             }
                             _ => None,
                         };
                         let _ = queries::update_destination_level1_run_status(
-                            &db_status, &dest_id_status, now, l1_next,
-                        ).await;
+                            &db_status,
+                            &dest_id_status,
+                            now,
+                            l1_next,
+                        )
+                        .await;
 
                         running_jobs_clone.remove(&dest_id_inner);
                     });
@@ -421,6 +475,10 @@ impl Scheduler {
         }
     }
 
+    pub fn scheduled_task_counts(&self) -> (usize, usize) {
+        (self.tasks.len(), self.level1_tasks.len())
+    }
+
     pub async fn reload_all(
         &mut self,
         db: Arc<SqlitePool>,
@@ -432,7 +490,15 @@ impl Scheduler {
 
         match queries::get_all_active_destinations(&db).await {
             Ok(pairs) => {
+                let mut scheduled_destinations: HashSet<String> = HashSet::new();
                 for (source, dest) in pairs {
+                    if !scheduled_destinations.insert(dest.id.clone()) {
+                        log::warn!(
+                            "Duplicate destination {} detected during reload_all; skipping duplicate schedule",
+                            dest.id
+                        );
+                        continue;
+                    }
                     // Schedule Level 0
                     self.schedule_destination(
                         dest.clone(),

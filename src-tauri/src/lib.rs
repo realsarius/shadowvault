@@ -28,6 +28,7 @@ pub struct AppState {
     pub scheduler: Arc<Mutex<Scheduler>>,
     pub watcher: Arc<Mutex<FileWatcher>>,
     pub running_jobs: Arc<DashMap<String, tokio::task::AbortHandle>>,
+    pub verifying_jobs: Arc<DashMap<String, Instant>>,
     pub paused: Arc<AtomicBool>,
     pub minimize_to_tray: Arc<AtomicBool>,
     pub last_manual_run: Arc<DashMap<String, Instant>>,
@@ -71,7 +72,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::license::clear_license,
         commands::license::deactivate_license,
         commands::restore::restore_backup,
+        commands::restore::restore_dry_run,
         commands::restore::restore_block_backup,
+        commands::restore::restore_block_dry_run,
+        commands::restore::verify_backup,
         commands::config::export_config,
         commands::config::import_config,
         commands::notifications::send_test_email,
@@ -100,6 +104,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         commands::vault::get_open_files,
         commands::vault::sync_and_lock_vault,
         commands::backup_decrypt::decrypt_backup,
+        commands::diagnostics::export_diagnostics,
         rebuild_app_menu,
     ])
 }
@@ -244,11 +249,13 @@ pub fn run() {
                 }
 
                 let last_manual_run: Arc<DashMap<String, Instant>> = Arc::new(DashMap::new());
+                let verifying_jobs: Arc<DashMap<String, Instant>> = Arc::new(DashMap::new());
                 app_handle.manage(AppState {
                     db: pool,
                     scheduler,
                     watcher,
                     running_jobs,
+                    verifying_jobs,
                     paused,
                     minimize_to_tray,
                     last_manual_run,
@@ -314,7 +321,10 @@ pub fn run() {
             commands::license::clear_license,
             commands::license::deactivate_license,
             commands::restore::restore_backup,
+            commands::restore::restore_dry_run,
             commands::restore::restore_block_backup,
+            commands::restore::restore_block_dry_run,
+            commands::restore::verify_backup,
             commands::config::export_config,
             commands::config::import_config,
             commands::notifications::send_test_email,
@@ -343,6 +353,7 @@ pub fn run() {
             commands::vault::get_open_files,
             commands::vault::sync_and_lock_vault,
             commands::backup_decrypt::decrypt_backup,
+            commands::diagnostics::export_diagnostics,
             rebuild_app_menu,
         ])
         .run(tauri::generate_context!())

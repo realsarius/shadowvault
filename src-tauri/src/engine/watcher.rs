@@ -3,16 +3,16 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use tokio::sync::mpsc as tokio_mpsc;
-use tokio::task::AbortHandle;
 use dashmap::DashMap;
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::mpsc as tokio_mpsc;
+use tokio::task::AbortHandle;
 
-use crate::models::{Source, Destination};
-use crate::engine::copier::CopyJob;
 use crate::db::queries;
+use crate::engine::copier::CopyJob;
+use crate::models::{Destination, Source};
 
 pub struct FileWatcher {
     _watcher: Option<RecommendedWatcher>,
@@ -80,7 +80,10 @@ impl FileWatcher {
         for path in path_map.keys() {
             if let Err(e) = watcher.watch(Path::new(path), RecursiveMode::Recursive) {
                 let err_str = e.to_string();
-                if err_str.contains("inotify") || err_str.contains("No space left") || err_str.contains("too many") {
+                if err_str.contains("inotify")
+                    || err_str.contains("No space left")
+                    || err_str.contains("too many")
+                {
                     log::warn!("inotify limit may be reached: {}", err_str);
                     let _ = app_handle.emit("watcher-warning", serde_json::json!({
                         "message": "Linux inotify izleyici limiti aşıldı. Artırmak için: sudo sysctl -w fs.inotify.max_user_watches=524288"
@@ -98,10 +101,7 @@ impl FileWatcher {
             let debounce = Duration::from_millis(500);
 
             while let Some(event) = rx.recv().await {
-                let is_relevant = matches!(
-                    event.kind,
-                    EventKind::Modify(_) | EventKind::Create(_)
-                );
+                let is_relevant = matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_));
                 if !is_relevant {
                     continue;
                 }
@@ -131,6 +131,23 @@ impl FileWatcher {
                                 "Destination {} already running, skipping OnChange trigger",
                                 dest.id
                             );
+                            let db_skip = db.clone();
+                            let source_skip = source.clone();
+                            let dest_skip = dest.clone();
+                            tokio::spawn(async move {
+                                let _ = queries::insert_skipped_log_entry(
+                                    &db_skip,
+                                    &source_skip.id,
+                                    &dest_skip.id,
+                                    &source_skip.path,
+                                    &dest_skip.path,
+                                    "OnChange",
+                                    "Skipped: destination already has a running job",
+                                    None,
+                                    None,
+                                )
+                                .await;
+                            });
                             continue;
                         }
 
@@ -148,11 +165,14 @@ impl FileWatcher {
                         let watch_ah_start = app_handle_clone.clone();
 
                         let job_handle = tokio::task::spawn(async move {
-                            let _ = watch_ah_start.emit("copy-started", serde_json::json!({
-                                "destination_id": watch_dest_id_start,
-                                "source_path": watch_src_path,
-                                "destination_path": watch_dst_path,
-                            }));
+                            let _ = watch_ah_start.emit(
+                                "copy-started",
+                                serde_json::json!({
+                                    "destination_id": watch_dest_id_start,
+                                    "source_path": watch_src_path,
+                                    "destination_path": watch_dst_path,
+                                }),
+                            );
 
                             let job = CopyJob {
                                 source: source_clone,
