@@ -323,6 +323,7 @@ export function Logs() {
           >
             <option value="all">{t("log_all_statuses")}</option>
             <option value="Success">{t("status_success")}</option>
+            <option value="Verified">{t("status_verified")}</option>
             <option value="Failed">{t("status_failed")}</option>
             <option value="Running">{t("status_running")}</option>
             <option value="Skipped">{t("status_skipped")}</option>

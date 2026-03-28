@@ -77,6 +77,6 @@ jobs:
           releaseName: 'ShadowVault ${{ github.ref_name }}'
           releaseBody: |
             See the [CHANGELOG](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
