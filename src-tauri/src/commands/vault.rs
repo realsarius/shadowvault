@@ -1,21 +1,20 @@
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{State, Manager};
-use serde::{Deserialize, Serialize};
-use anyhow::Result;
+use tauri::{Manager, State};
 
-use crate::AppState;
 use crate::vault::{
     crypto::{derive_key, generate_salt},
     fs::{
-        VaultEntry, VaultMeta,
-        create_vault as vault_create_dir, import_file, import_directory,
-        export_file, delete_entry, create_directory as vault_create_dir_entry,
-        rename_entry, move_entry, generate_thumbnail, change_password,
-        decrypt_to_temp, secure_delete_temp, reencrypt_from_temp,
+        change_password, create_directory as vault_create_dir_entry,
+        create_vault as vault_create_dir, decrypt_to_temp, delete_entry, export_file,
+        generate_thumbnail, import_directory, import_file, move_entry, reencrypt_from_temp,
+        rename_entry, secure_delete_temp, VaultEntry, VaultMeta,
     },
-    session::{SessionStore, OpenFileSummary},
+    session::{OpenFileSummary, SessionStore},
 };
+use crate::AppState;
 
 // ─── Yardımcı Tipler ────────────────────────────────────────────────────────
 
@@ -61,8 +60,8 @@ pub async fn create_vault(
     password: String,
     algorithm: Option<String>,
 ) -> Result<VaultSummary, String> {
-    use uuid::Uuid;
     use chrono::Utc;
+    use uuid::Uuid;
 
     // Freemium: 3 kasa limiti
     let pool = &db_state.db;
@@ -72,14 +71,13 @@ pub async fn create_vault(
         .map_err(|e| e.to_string())?;
 
     // License kontrolü
-    let is_pro = sqlx::query_scalar::<_, String>(
-        "SELECT value FROM settings WHERE key = 'license_status'",
-    )
-    .fetch_optional(pool.as_ref())
-    .await
-    .map_err(|e| e.to_string())?
-    .map(|v| v == "valid")
-    .unwrap_or(false);
+    let is_pro =
+        sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'license_status'")
+            .fetch_optional(pool.as_ref())
+            .await
+            .map_err(|e| e.to_string())?
+            .map(|v| v == "valid")
+            .unwrap_or(false);
 
     if !is_pro && count >= 3 {
         return Err("vault_limit_reached".to_string());
@@ -151,10 +149,20 @@ pub async fn list_vaults(
 
     let vaults = rows
         .into_iter()
-        .map(|(id, name, algorithm, vault_path, created_at, last_opened)| {
-            let unlocked = guard.is_unlocked(&id);
-            VaultSummary { id, name, algorithm, vault_path, created_at, last_opened, unlocked }
-        })
+        .map(
+            |(id, name, algorithm, vault_path, created_at, last_opened)| {
+                let unlocked = guard.is_unlocked(&id);
+                VaultSummary {
+                    id,
+                    name,
+                    algorithm,
+                    vault_path,
+                    created_at,
+                    last_opened,
+                    unlocked,
+                }
+            },
+        )
         .collect();
 
     Ok(vaults)
@@ -187,10 +195,9 @@ pub async fn unlock_vault(
     // Ancak mevcut tasarımda salt, şifreli meta içinde. Bu nedenle
     // salt'ı ayrı bir plaintext dosyasında tutalım (.shadow_salt).
     let salt_path = vault_path.join(".shadow_salt");
-    let salt_hex = std::fs::read_to_string(&salt_path)
-        .map_err(|_| "Vault salt not found".to_string())?;
-    let salt_bytes = hex::decode(salt_hex.trim())
-        .map_err(|_| "Invalid vault salt".to_string())?;
+    let salt_hex =
+        std::fs::read_to_string(&salt_path).map_err(|_| "Vault salt not found".to_string())?;
+    let salt_bytes = hex::decode(salt_hex.trim()).map_err(|_| "Invalid vault salt".to_string())?;
 
     let master_key = derive_key(&password, &salt_bytes).map_err(|e| e.to_string())?;
 
@@ -333,8 +340,14 @@ pub async fn export_file_cmd(
         .find(|e| e.id == entry_id)
         .ok_or_else(|| "Entry not found".to_string())?;
 
-    export_file(&vault_path, entry, Path::new(&dest_path), &master_key, &meta.algorithm)
-        .map_err(|e| e.to_string())
+    export_file(
+        &vault_path,
+        entry,
+        Path::new(&dest_path),
+        &master_key,
+        &meta.algorithm,
+    )
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -361,8 +374,8 @@ pub async fn open_file_cmd(
         .ok_or_else(|| "Entry not found".to_string())?;
 
     let algorithm = meta.algorithm.clone();
-    let tmp_path = decrypt_to_temp(&vault_path, &entry, &master_key, &algorithm)
-        .map_err(|e| e.to_string())?;
+    let tmp_path =
+        decrypt_to_temp(&vault_path, &entry, &master_key, &algorithm).map_err(|e| e.to_string())?;
 
     // Açık dosyayı session'a kaydet — kilitlemeden önce re-encrypt için
     guard.register_open_file(
@@ -427,8 +440,14 @@ pub async fn sync_and_lock_vault(
                 let algorithm = VaultMeta::load(&entry.vault_path, key)
                     .map(|m| m.algorithm)
                     .unwrap_or_else(|_| "AES-256-GCM".to_string());
-                reencrypt_from_temp(&entry.vault_path, &entry.entry_id, tmp_path, key, &algorithm)
-                    .map_err(|e| e.to_string())?;
+                reencrypt_from_temp(
+                    &entry.vault_path,
+                    &entry.entry_id,
+                    tmp_path,
+                    key,
+                    &algorithm,
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
         secure_delete_temp(tmp_path).ok();
@@ -464,7 +483,8 @@ pub async fn rename_entry_cmd(
     let vault_path = vault_path_for(&app, &vault_id)?;
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
     rename_entry(&mut meta, &entry_id, &new_name).map_err(|e| e.to_string())?;
-    meta.save(&vault_path, &master_key).map_err(|e| e.to_string())
+    meta.save(&vault_path, &master_key)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -484,9 +504,9 @@ pub async fn move_entry_cmd(
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
-    move_entry(&mut meta, &entry_id, new_parent_id.as_deref())
-        .map_err(|e| e.to_string())?;
-    meta.save(&vault_path, &master_key).map_err(|e| e.to_string())
+    move_entry(&mut meta, &entry_id, new_parent_id.as_deref()).map_err(|e| e.to_string())?;
+    meta.save(&vault_path, &master_key)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -506,7 +526,8 @@ pub async fn delete_entry_cmd(
     let vault_path = vault_path_for(&app, &vault_id)?;
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
     delete_entry(&vault_path, &mut meta, &entry_id).map_err(|e| e.to_string())?;
-    meta.save(&vault_path, &master_key).map_err(|e| e.to_string())
+    meta.save(&vault_path, &master_key)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -528,7 +549,8 @@ pub async fn create_directory_cmd(
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
     let entry = vault_create_dir_entry(&mut meta, &name, parent_id.as_deref())
         .map_err(|e| e.to_string())?;
-    meta.save(&vault_path, &master_key).map_err(|e| e.to_string())?;
+    meta.save(&vault_path, &master_key)
+        .map_err(|e| e.to_string())?;
     Ok(entry)
 }
 
@@ -570,10 +592,9 @@ pub async fn delete_vault(
 
     // Şifreyi doğrula
     let salt_path = vault_path.join(".shadow_salt");
-    let salt_hex = std::fs::read_to_string(&salt_path)
-        .map_err(|_| "Vault salt not found".to_string())?;
-    let salt_bytes = hex::decode(salt_hex.trim())
-        .map_err(|_| "Invalid vault salt".to_string())?;
+    let salt_hex =
+        std::fs::read_to_string(&salt_path).map_err(|_| "Vault salt not found".to_string())?;
+    let salt_bytes = hex::decode(salt_hex.trim()).map_err(|_| "Invalid vault salt".to_string())?;
 
     let master_key = derive_key(&password, &salt_bytes).map_err(|e| e.to_string())?;
     VaultMeta::load(&vault_path, &master_key).map_err(|_| "Wrong password".to_string())?;
@@ -607,17 +628,15 @@ pub async fn change_vault_password(
     let vault_path = vault_path_for(&app, &vault_id)?;
 
     let salt_path = vault_path.join(".shadow_salt");
-    let salt_hex = std::fs::read_to_string(&salt_path)
-        .map_err(|_| "Vault salt not found".to_string())?;
-    let old_salt = hex::decode(salt_hex.trim())
-        .map_err(|_| "Invalid vault salt".to_string())?;
+    let salt_hex =
+        std::fs::read_to_string(&salt_path).map_err(|_| "Vault salt not found".to_string())?;
+    let old_salt = hex::decode(salt_hex.trim()).map_err(|_| "Invalid vault salt".to_string())?;
 
     let old_key = derive_key(&old_password, &old_salt).map_err(|e| e.to_string())?;
     let new_salt = generate_salt();
     let new_key = derive_key(&new_password, &new_salt).map_err(|e| e.to_string())?;
 
-    change_password(&vault_path, &old_key, &new_key, &new_salt)
-        .map_err(|e| e.to_string())?;
+    change_password(&vault_path, &old_key, &new_key, &new_salt).map_err(|e| e.to_string())?;
 
     // Salt dosyasını güncelle
     std::fs::write(&salt_path, hex::encode(new_salt)).map_err(|e| e.to_string())?;

@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+use crate::models::schedule::{RetentionPolicy, Schedule};
 use chrono::{DateTime, Utc};
-use crate::models::schedule::{Schedule, RetentionPolicy};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub enum DestinationType {
@@ -41,12 +41,12 @@ pub struct S3Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct OAuthConfig {
-    pub provider: String,        // "onedrive" | "gdrive"
+    pub provider: String, // "onedrive" | "gdrive"
     pub client_id: String,
     pub access_token: String,
     pub refresh_token: String,
-    pub expires_at: i64,         // Unix timestamp seconds (UTC)
-    pub folder_path: String,     // Root folder on the remote drive
+    pub expires_at: i64,     // Unix timestamp seconds (UTC)
+    pub folder_path: String, // Root folder on the remote drive
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -54,18 +54,18 @@ pub struct SftpConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
-    pub auth_type: String,          // "password" | "key"
+    pub auth_type: String, // "password" | "key"
     pub password: Option<String>,
     pub private_key: Option<String>, // path to private key file
-    pub remote_path: String,        // base directory on server
+    pub remote_path: String,         // base directory on server
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct WebDavConfig {
-    pub url: String,           // e.g. https://nextcloud.example.com/remote.php/dav/files/user
+    pub url: String, // e.g. https://nextcloud.example.com/remote.php/dav/files/user
     pub username: String,
     pub password: String,
-    pub root_path: String,     // sub-path within the WebDAV root
+    pub root_path: String, // sub-path within the WebDAV root
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -163,6 +163,7 @@ pub struct Destination {
 pub enum JobStatus {
     Running,
     Success,
+    Verified,
     Failed,
     Skipped,
     Cancelled,
@@ -173,6 +174,7 @@ impl std::fmt::Display for JobStatus {
         let s = match self {
             JobStatus::Running => "Running",
             JobStatus::Success => "Success",
+            JobStatus::Verified => "Verified",
             JobStatus::Failed => "Failed",
             JobStatus::Skipped => "Skipped",
             JobStatus::Cancelled => "Cancelled",
@@ -187,6 +189,7 @@ impl std::str::FromStr for JobStatus {
         match s {
             "Running" => Ok(JobStatus::Running),
             "Success" => Ok(JobStatus::Success),
+            "Verified" => Ok(JobStatus::Verified),
             "Failed" => Ok(JobStatus::Failed),
             "Skipped" => Ok(JobStatus::Skipped),
             "Cancelled" => Ok(JobStatus::Cancelled),

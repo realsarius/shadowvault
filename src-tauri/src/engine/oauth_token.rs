@@ -1,30 +1,45 @@
 use crate::models::OAuthConfig;
 use chrono::Utc;
 
-const ONEDRIVE_AUTH_URL:  &str = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
+const ONEDRIVE_AUTH_URL: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize";
 const ONEDRIVE_TOKEN_URL: &str = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
-const ONEDRIVE_SCOPE:     &str = "Files.ReadWrite offline_access User.Read";
+const ONEDRIVE_SCOPE: &str = "Files.ReadWrite offline_access User.Read";
 
-const GDRIVE_AUTH_URL:  &str = "https://accounts.google.com/o/oauth2/v2/auth";
+const GDRIVE_AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
 const GDRIVE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
-const GDRIVE_SCOPE:     &str = "https://www.googleapis.com/auth/drive.file";
+const GDRIVE_SCOPE: &str = "https://www.googleapis.com/auth/drive.file";
 
-const DROPBOX_AUTH_URL:  &str = "https://www.dropbox.com/oauth2/authorize";
+const DROPBOX_AUTH_URL: &str = "https://www.dropbox.com/oauth2/authorize";
 const DROPBOX_TOKEN_URL: &str = "https://api.dropboxapi.com/oauth2/token";
-const DROPBOX_SCOPE:     &str = "";
+const DROPBOX_SCOPE: &str = "";
 
 // Client IDs are baked in at compile time via build.rs (.env locally, GitHub Secrets in CI)
-const ONEDRIVE_CLIENT_ID:     &str = match option_env!("ONEDRIVE_CLIENT_ID")     { Some(v) => v, None => "" };
-const GDRIVE_CLIENT_ID:       &str = match option_env!("GDRIVE_CLIENT_ID")       { Some(v) => v, None => "" };
-const GDRIVE_CLIENT_SECRET:   &str = match option_env!("GDRIVE_CLIENT_SECRET")   { Some(v) => v, None => "" };
-const DROPBOX_CLIENT_ID:      &str = match option_env!("DROPBOX_CLIENT_ID")      { Some(v) => v, None => "" };
-const DROPBOX_CLIENT_SECRET:  &str = match option_env!("DROPBOX_CLIENT_SECRET")  { Some(v) => v, None => "" };
+const ONEDRIVE_CLIENT_ID: &str = match option_env!("ONEDRIVE_CLIENT_ID") {
+    Some(v) => v,
+    None => "",
+};
+const GDRIVE_CLIENT_ID: &str = match option_env!("GDRIVE_CLIENT_ID") {
+    Some(v) => v,
+    None => "",
+};
+const GDRIVE_CLIENT_SECRET: &str = match option_env!("GDRIVE_CLIENT_SECRET") {
+    Some(v) => v,
+    None => "",
+};
+const DROPBOX_CLIENT_ID: &str = match option_env!("DROPBOX_CLIENT_ID") {
+    Some(v) => v,
+    None => "",
+};
+const DROPBOX_CLIENT_SECRET: &str = match option_env!("DROPBOX_CLIENT_SECRET") {
+    Some(v) => v,
+    None => "",
+};
 
 pub fn client_id_for(provider: &str) -> anyhow::Result<&'static str> {
     let id = match provider {
         "onedrive" => ONEDRIVE_CLIENT_ID,
-        "gdrive"   => GDRIVE_CLIENT_ID,
-        "dropbox"  => DROPBOX_CLIENT_ID,
+        "gdrive" => GDRIVE_CLIENT_ID,
+        "dropbox" => DROPBOX_CLIENT_ID,
         p => anyhow::bail!("Unknown OAuth provider: {}", p),
     };
     if id.is_empty() {
@@ -35,23 +50,20 @@ pub fn client_id_for(provider: &str) -> anyhow::Result<&'static str> {
 
 pub struct PkceSession {
     pub code_verifier: String,
-    pub redirect_uri:  String,
-    pub auth_url:      String,
-    pub state:         String,
+    pub redirect_uri: String,
+    pub auth_url: String,
+    pub state: String,
 }
 
 // ── PKCE helpers ─────────────────────────────────────────────────────────────
 
 /// Generates a PKCE session for the given provider and binds a local TCP port.
 /// The returned port is already bound so no TOCTOU race exists.
-pub fn build_pkce_session(
-    provider: &str,
-    port:     u16,
-) -> anyhow::Result<PkceSession> {
+pub fn build_pkce_session(provider: &str, port: u16) -> anyhow::Result<PkceSession> {
     let client_id = client_id_for(provider)?;
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     use rand::Rng;
-    use sha2::{Sha256, Digest};
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    use sha2::{Digest, Sha256};
 
     // code_verifier: 96 alphanumeric chars (within the 43-128 allowed range)
     let code_verifier: String = rand::thread_rng()
@@ -75,27 +87,27 @@ pub fn build_pkce_session(
 
     let (auth_url_base, scope) = match provider {
         "onedrive" => (ONEDRIVE_AUTH_URL, ONEDRIVE_SCOPE),
-        "gdrive"   => (GDRIVE_AUTH_URL,   GDRIVE_SCOPE),
-        "dropbox"  => (DROPBOX_AUTH_URL,  DROPBOX_SCOPE),
+        "gdrive" => (GDRIVE_AUTH_URL, GDRIVE_SCOPE),
+        "dropbox" => (DROPBOX_AUTH_URL, DROPBOX_SCOPE),
         p => anyhow::bail!("Unknown OAuth provider: {}", p),
     };
 
     let mut url = url::Url::parse(auth_url_base)?;
     {
         let mut q = url.query_pairs_mut();
-        q.append_pair("client_id",             client_id);
-        q.append_pair("response_type",         "code");
-        q.append_pair("redirect_uri",          &redirect_uri);
+        q.append_pair("client_id", client_id);
+        q.append_pair("response_type", "code");
+        q.append_pair("redirect_uri", &redirect_uri);
         if !scope.is_empty() {
             q.append_pair("scope", scope);
         }
-        q.append_pair("state",                 &state);
-        q.append_pair("code_challenge",        &code_challenge);
+        q.append_pair("state", &state);
+        q.append_pair("code_challenge", &code_challenge);
         q.append_pair("code_challenge_method", "S256");
         // Google: needed to receive refresh_token
         if provider == "gdrive" {
             q.append_pair("access_type", "offline");
-            q.append_pair("prompt",      "consent");
+            q.append_pair("prompt", "consent");
         }
         // Dropbox: needed to receive refresh_token
         if provider == "dropbox" {
@@ -116,45 +128,47 @@ pub fn build_pkce_session(
 /// Waits (up to 120 s) for the browser to redirect to the local callback URL.
 /// Accepts a single connection, parses `code` and `state`, sends success HTML.
 pub async fn await_callback(
-    listener:       tokio::net::TcpListener,
+    listener: tokio::net::TcpListener,
     expected_state: &str,
 ) -> anyhow::Result<String> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let (mut stream, _) = tokio::time::timeout(
-        std::time::Duration::from_secs(120),
-        listener.accept(),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("OAuth callback zaman aşımına uğradı (120 s)"))?
-    .map_err(|e| anyhow::anyhow!("TCP accept hatası: {}", e))?;
+    let (mut stream, _) =
+        tokio::time::timeout(std::time::Duration::from_secs(120), listener.accept())
+            .await
+            .map_err(|_| anyhow::anyhow!("OAuth callback zaman aşımına uğradı (120 s)"))?
+            .map_err(|e| anyhow::anyhow!("TCP accept hatası: {}", e))?;
 
     let mut buf = vec![0u8; 8192];
     let n = stream.read(&mut buf).await?;
     let request = String::from_utf8_lossy(&buf[..n]).to_string();
 
     // First line: "GET /callback?code=xxx&state=yyy HTTP/1.1"
-    let first_line = request.lines().next()
+    let first_line = request
+        .lines()
+        .next()
         .ok_or_else(|| anyhow::anyhow!("Boş HTTP isteği"))?;
-    let path_part = first_line.split_whitespace().nth(1)
+    let path_part = first_line
+        .split_whitespace()
+        .nth(1)
         .ok_or_else(|| anyhow::anyhow!("Geçersiz HTTP isteği"))?;
 
     // Parse query string manually — avoid extra deps for these simple params
     let query = path_part.split('?').nth(1).unwrap_or("");
-    let mut code  = None;
+    let mut code = None;
     let mut state = None;
     for pair in query.split('&') {
         let mut kv = pair.splitn(2, '=');
         let k = kv.next().unwrap_or("");
         let v = kv.next().unwrap_or("");
         match k {
-            "code"  => code  = Some(percent_decode(v)),
+            "code" => code = Some(percent_decode(v)),
             "state" => state = Some(percent_decode(v)),
             _ => {}
         }
     }
 
-    let code  = code .ok_or_else(|| anyhow::anyhow!("Callback'te 'code' parametresi yok"))?;
+    let code = code.ok_or_else(|| anyhow::anyhow!("Callback'te 'code' parametresi yok"))?;
     let state = state.ok_or_else(|| anyhow::anyhow!("Callback'te 'state' parametresi yok"))?;
 
     let success_html = if state == expected_state {
@@ -185,12 +199,16 @@ fn percent_decode(s: &str) -> String {
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
             if let Ok(b) = u8::from_str_radix(
-                std::str::from_utf8(&bytes[i+1..i+3]).unwrap_or("??"), 16
+                std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("??"),
+                16,
             ) {
-                out.push(b); i += 3; continue;
+                out.push(b);
+                i += 3;
+                continue;
             }
         }
-        out.push(bytes[i]); i += 1;
+        out.push(bytes[i]);
+        i += 1;
     }
     String::from_utf8(out).unwrap_or_else(|_| s.to_string())
 }
@@ -198,25 +216,25 @@ fn percent_decode(s: &str) -> String {
 // ── Token exchange ────────────────────────────────────────────────────────────
 
 pub async fn exchange_code(
-    provider:      &str,
-    code:          &str,
+    provider: &str,
+    code: &str,
     code_verifier: &str,
-    redirect_uri:  &str,
+    redirect_uri: &str,
 ) -> anyhow::Result<OAuthConfig> {
     let client_id = client_id_for(provider)?;
     let token_url = match provider {
         "onedrive" => ONEDRIVE_TOKEN_URL,
-        "gdrive"   => GDRIVE_TOKEN_URL,
-        "dropbox"  => DROPBOX_TOKEN_URL,
+        "gdrive" => GDRIVE_TOKEN_URL,
+        "dropbox" => DROPBOX_TOKEN_URL,
         p => anyhow::bail!("Unknown provider: {}", p),
     };
 
     let client = reqwest::Client::new();
     let mut params = std::collections::HashMap::new();
-    params.insert("grant_type",    "authorization_code");
-    params.insert("client_id",     client_id);
-    params.insert("code",          code);
-    params.insert("redirect_uri",  redirect_uri);
+    params.insert("grant_type", "authorization_code");
+    params.insert("client_id", client_id);
+    params.insert("code", code);
+    params.insert("redirect_uri", redirect_uri);
     params.insert("code_verifier", code_verifier);
     // Google Desktop apps require client_secret in token exchange
     if provider == "gdrive" && !GDRIVE_CLIENT_SECRET.is_empty() {
@@ -248,15 +266,15 @@ pub async fn ensure_fresh_token(config: &OAuthConfig) -> anyhow::Result<OAuthCon
 
     let token_url = match config.provider.as_str() {
         "onedrive" => ONEDRIVE_TOKEN_URL,
-        "gdrive"   => GDRIVE_TOKEN_URL,
-        "dropbox"  => DROPBOX_TOKEN_URL,
+        "gdrive" => GDRIVE_TOKEN_URL,
+        "dropbox" => DROPBOX_TOKEN_URL,
         p => anyhow::bail!("Unknown provider: {}", p),
     };
 
     let client = reqwest::Client::new();
     let mut params = std::collections::HashMap::new();
-    params.insert("grant_type",    "refresh_token");
-    params.insert("client_id",     config.client_id.as_str());
+    params.insert("grant_type", "refresh_token");
+    params.insert("client_id", config.client_id.as_str());
     params.insert("refresh_token", config.refresh_token.as_str());
     if config.provider == "gdrive" && !GDRIVE_CLIENT_SECRET.is_empty() {
         params.insert("client_secret", GDRIVE_CLIENT_SECRET);
@@ -272,7 +290,12 @@ pub async fn ensure_fresh_token(config: &OAuthConfig) -> anyhow::Result<OAuthCon
     }
 
     let json: serde_json::Value = resp.json().await?;
-    let mut fresh = parse_token_response(&json, &config.provider, &config.client_id, &config.folder_path)?;
+    let mut fresh = parse_token_response(
+        &json,
+        &config.provider,
+        &config.client_id,
+        &config.folder_path,
+    )?;
     // Some providers don't return a new refresh_token on every refresh
     if fresh.refresh_token.is_empty() {
         fresh.refresh_token = config.refresh_token.clone();
@@ -281,26 +304,25 @@ pub async fn ensure_fresh_token(config: &OAuthConfig) -> anyhow::Result<OAuthCon
 }
 
 fn parse_token_response(
-    json:        &serde_json::Value,
-    provider:    &str,
-    client_id:   &str,
+    json: &serde_json::Value,
+    provider: &str,
+    client_id: &str,
     folder_path: &str,
 ) -> anyhow::Result<OAuthConfig> {
-    let access_token = json["access_token"].as_str()
+    let access_token = json["access_token"]
+        .as_str()
         .ok_or_else(|| anyhow::anyhow!("Yanıtta access_token yok"))?
         .to_string();
-    let refresh_token = json["refresh_token"].as_str()
-        .unwrap_or("")
-        .to_string();
+    let refresh_token = json["refresh_token"].as_str().unwrap_or("").to_string();
     let expires_in = json["expires_in"].as_i64().unwrap_or(3600);
     let expires_at = Utc::now().timestamp() + expires_in;
 
     Ok(OAuthConfig {
-        provider:      provider.to_string(),
-        client_id:     client_id.to_string(),
+        provider: provider.to_string(),
+        client_id: client_id.to_string(),
         access_token,
         refresh_token,
         expires_at,
-        folder_path:   folder_path.to_string(),
+        folder_path: folder_path.to_string(),
     })
 }

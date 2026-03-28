@@ -264,7 +264,13 @@ mod tests {
     #[test]
     fn test_backup_level_display() {
         assert_eq!(format!("{}", BackupLevel::Level0), "Level 0 (Full)");
-        assert_eq!(format!("{}", BackupLevel::Level1Differential), "Level 1 (Differential)");
-        assert_eq!(format!("{}", BackupLevel::Level1Cumulative), "Level 1 (Cumulative)");
+        assert_eq!(
+            format!("{}", BackupLevel::Level1Differential),
+            "Level 1 (Differential)"
+        );
+        assert_eq!(
+            format!("{}", BackupLevel::Level1Cumulative),
+            "Level 1 (Cumulative)"
+        );
     }
 }

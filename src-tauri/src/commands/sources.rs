@@ -1,9 +1,9 @@
-use tauri::{AppHandle, State};
-use serde_json::Value;
-use uuid::Uuid;
 use chrono::Utc;
-use std::str::FromStr;
+use serde_json::Value;
 use sqlx::Row;
+use std::str::FromStr;
+use tauri::{AppHandle, State};
+use uuid::Uuid;
 
 const MAX_NAME_LEN: usize = 255;
 const MAX_PATH_LEN: usize = 4096;
@@ -28,14 +28,17 @@ fn validate_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
-use crate::AppState;
-use crate::models::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig};
-use crate::models::schedule::{Schedule, RetentionPolicy};
 use crate::db::queries;
+use crate::models::schedule::{RetentionPolicy, Schedule};
+use crate::models::{
+    Destination, DestinationType, JobStatus, OAuthConfig, S3Config, SftpConfig, Source, SourceType,
+    WebDavConfig,
+};
+use crate::AppState;
 
 fn encrypt_password_for_storage(password: &str) -> anyhow::Result<(String, String)> {
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
     use rand::RngCore;
-    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
     let mut salt_bytes = [0u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut salt_bytes);
@@ -164,27 +167,39 @@ pub async fn add_destination(
         serde_json::from_value(retention).map_err(|e| e.to_string())?;
 
     let dest_type = match destination_type.as_deref() {
-        Some("S3")          => DestinationType::S3,
-        Some("R2")          => DestinationType::R2,
-        Some("Sftp")        => DestinationType::Sftp,
-        Some("OneDrive")    => DestinationType::OneDrive,
+        Some("S3") => DestinationType::S3,
+        Some("R2") => DestinationType::R2,
+        Some("Sftp") => DestinationType::Sftp,
+        Some("OneDrive") => DestinationType::OneDrive,
         Some("GoogleDrive") => DestinationType::GoogleDrive,
-        Some("Dropbox")     => DestinationType::Dropbox,
-        Some("WebDav")      => DestinationType::WebDav,
+        Some("Dropbox") => DestinationType::Dropbox,
+        Some("WebDav") => DestinationType::WebDav,
         _ => DestinationType::Local,
     };
-    let cloud_cfg: Option<S3Config> = if matches!(dest_type, DestinationType::S3 | DestinationType::R2) {
-        cloud_config.and_then(|v| serde_json::from_value(v).ok())
-    } else { None };
+    let cloud_cfg: Option<S3Config> =
+        if matches!(dest_type, DestinationType::S3 | DestinationType::R2) {
+            cloud_config.and_then(|v| serde_json::from_value(v).ok())
+        } else {
+            None
+        };
     let sftp_cfg: Option<SftpConfig> = if dest_type == DestinationType::Sftp {
         sftp_config.and_then(|v| serde_json::from_value(v).ok())
-    } else { None };
-    let oauth_cfg: Option<OAuthConfig> = if matches!(dest_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) {
+    } else {
+        None
+    };
+    let oauth_cfg: Option<OAuthConfig> = if matches!(
+        dest_type,
+        DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox
+    ) {
         oauth_config.and_then(|v| serde_json::from_value(v).ok())
-    } else { None };
+    } else {
+        None
+    };
     let webdav_cfg: Option<WebDavConfig> = if dest_type == DestinationType::WebDav {
         webdav_config.and_then(|v| serde_json::from_value(v).ok())
-    } else { None };
+    } else {
+        None
+    };
 
     let do_encrypt = encrypt.unwrap_or(false);
     let (enc_password, enc_salt) = if do_encrypt {
@@ -321,57 +336,63 @@ pub async fn update_destination(
     let last_run_str: Option<String> = dest_row.try_get("last_run").map_err(|e| e.to_string())?;
     let last_status_str: Option<String> =
         dest_row.try_get("last_status").map_err(|e| e.to_string())?;
-    let next_run_str: Option<String> =
-        dest_row.try_get("next_run").map_err(|e| e.to_string())?;
-    let existing_exclusions_json: String =
-        dest_row.try_get("exclusions_json").unwrap_or_else(|_| "[]".to_string());
+    let next_run_str: Option<String> = dest_row.try_get("next_run").map_err(|e| e.to_string())?;
+    let existing_exclusions_json: String = dest_row
+        .try_get("exclusions_json")
+        .unwrap_or_else(|_| "[]".to_string());
     let existing_incremental: i64 = dest_row.try_get("incremental").unwrap_or(0);
     let existing_encrypt: i64 = dest_row.try_get("encrypt").unwrap_or(0);
-    let existing_encrypt_password_enc: Option<String> = dest_row.try_get("encrypt_password_enc").unwrap_or(None);
+    let existing_encrypt_password_enc: Option<String> =
+        dest_row.try_get("encrypt_password_enc").unwrap_or(None);
     let existing_encrypt_salt: Option<String> = dest_row.try_get("encrypt_salt").unwrap_or(None);
 
-    let schedule_parsed: Schedule =
-        serde_json::from_value(schedule).map_err(|e| e.to_string())?;
+    let schedule_parsed: Schedule = serde_json::from_value(schedule).map_err(|e| e.to_string())?;
     let retention_parsed: RetentionPolicy =
         serde_json::from_value(retention).map_err(|e| e.to_string())?;
 
-    let last_run =
-        last_run_str.and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok());
-    let last_status =
-        last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
-    let next_run =
-        next_run_str.and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok());
+    let last_run = last_run_str.and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok());
+    let last_status = last_status_str.and_then(|s| JobStatus::from_str(&s).ok());
+    let next_run = next_run_str.and_then(|s| s.parse::<chrono::DateTime<chrono::Utc>>().ok());
 
     // Use provided exclusions or preserve existing ones
-    let resolved_exclusions = exclusions.unwrap_or_else(|| {
-        serde_json::from_str(&existing_exclusions_json).unwrap_or_default()
-    });
+    let resolved_exclusions = exclusions
+        .unwrap_or_else(|| serde_json::from_str(&existing_exclusions_json).unwrap_or_default());
     let resolved_incremental = incremental.unwrap_or(existing_incremental != 0);
 
     let dest_type = match destination_type.as_deref() {
-        Some("S3")          => DestinationType::S3,
-        Some("R2")          => DestinationType::R2,
-        Some("Sftp")        => DestinationType::Sftp,
-        Some("OneDrive")    => DestinationType::OneDrive,
+        Some("S3") => DestinationType::S3,
+        Some("R2") => DestinationType::R2,
+        Some("Sftp") => DestinationType::Sftp,
+        Some("OneDrive") => DestinationType::OneDrive,
         Some("GoogleDrive") => DestinationType::GoogleDrive,
-        Some("Dropbox")     => DestinationType::Dropbox,
-        Some("WebDav")      => DestinationType::WebDav,
+        Some("Dropbox") => DestinationType::Dropbox,
+        Some("WebDav") => DestinationType::WebDav,
         _ => DestinationType::Local,
     };
-    let cloud_cfg: Option<S3Config> = if matches!(dest_type, DestinationType::S3 | DestinationType::R2) {
-        cloud_config.and_then(|v| serde_json::from_value(v).ok())
-    } else { None };
+    let cloud_cfg: Option<S3Config> =
+        if matches!(dest_type, DestinationType::S3 | DestinationType::R2) {
+            cloud_config.and_then(|v| serde_json::from_value(v).ok())
+        } else {
+            None
+        };
     let sftp_cfg: Option<SftpConfig> = if dest_type == DestinationType::Sftp {
         sftp_config.and_then(|v| serde_json::from_value(v).ok())
-    } else { None };
-    let oauth_cfg: Option<OAuthConfig> = if matches!(dest_type, DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox) {
+    } else {
+        None
+    };
+    let oauth_cfg: Option<OAuthConfig> = if matches!(
+        dest_type,
+        DestinationType::OneDrive | DestinationType::GoogleDrive | DestinationType::Dropbox
+    ) {
         oauth_config.and_then(|v| serde_json::from_value(v).ok())
-    } else { None };
+    } else {
+        None
+    };
     let webdav_cfg: Option<WebDavConfig> = if dest_type == DestinationType::WebDav {
         webdav_config.and_then(|v| serde_json::from_value(v).ok())
-    } else { None };
-
-    let is_onchange = matches!(schedule_parsed, Schedule::OnChange);
+    } else {
+        None
+    };
 
     // Resolve encryption fields: if a new password is provided, re-encrypt; otherwise preserve existing
     let resolved_encrypt = encrypt.unwrap_or(existing_encrypt != 0);
@@ -393,8 +414,11 @@ pub async fn update_destination(
 
     // Resolve level1 fields
     let existing_l1_enabled: i64 = dest_row.try_get("level1_enabled").unwrap_or(0);
-    let existing_l1_schedule_json: Option<String> = dest_row.try_get("level1_schedule_json").unwrap_or(None);
-    let existing_l1_type: String = dest_row.try_get("level1_type").unwrap_or_else(|_| "Cumulative".to_string());
+    let existing_l1_schedule_json: Option<String> =
+        dest_row.try_get("level1_schedule_json").unwrap_or(None);
+    let existing_l1_type: String = dest_row
+        .try_get("level1_type")
+        .unwrap_or_else(|_| "Cumulative".to_string());
 
     let resolved_l1_enabled = level1_enabled.unwrap_or(existing_l1_enabled != 0);
     let resolved_l1_schedule: Option<Schedule> = if resolved_l1_enabled {

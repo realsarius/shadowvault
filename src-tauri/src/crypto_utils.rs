@@ -1,14 +1,14 @@
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit, OsRng},
+    Aes256Gcm, Key, Nonce,
+};
 /// Hardware-ID tabanlı AES-256-GCM yardımcı fonksiyonları.
 ///
 /// Bu modül, cihaza bağlı şifreleme için ortak mantığı tek yerde toplar.
 /// Uygulama genelinde cloud config, SFTP/OAuth/WebDAV şifreleri ve lisans
 /// anahtarı aynı HW-key mekanizmasını kullanır.
 use anyhow::anyhow;
-use aes_gcm::{
-    aead::{Aead, AeadCore, KeyInit, OsRng},
-    Aes256Gcm, Key, Nonce,
-};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use sysinfo::System;

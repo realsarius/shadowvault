@@ -1,12 +1,12 @@
 use std::sync::atomic::Ordering;
 
-use tauri::{AppHandle, State};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use tauri::{AppHandle, State};
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::AppState;
 use crate::db::queries;
+use crate::AppState;
 
 /// Reads a single setting value by key. Returns null if not set.
 #[tauri::command]

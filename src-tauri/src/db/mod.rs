@@ -1,6 +1,6 @@
 pub mod queries;
 
-use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
 pub async fn init_db(db_path: &str) -> Result<SqlitePool, sqlx::Error> {

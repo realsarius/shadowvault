@@ -1,10 +1,10 @@
-use tauri::State;
-use serde::Serialize;
 use globset::{Glob, GlobSetBuilder};
+use serde::Serialize;
+use tauri::State;
 
-use crate::AppState;
 use crate::db::queries;
 use crate::models::SourceType;
+use crate::AppState;
 
 const MAX_LISTED_FILES: usize = 200;
 
@@ -18,7 +18,7 @@ pub struct PreviewFile {
 
 #[derive(Serialize, specta::Type)]
 pub struct BackupPreview {
-    pub files: Vec<PreviewFile>,  // capped at MAX_LISTED_FILES
+    pub files: Vec<PreviewFile>, // capped at MAX_LISTED_FILES
     pub copy_count: usize,
     pub copy_bytes: u64,
     pub skip_count: usize,
@@ -54,13 +54,14 @@ pub async fn preview_backup(
             builder.add(glob);
         }
     }
-    let exclusion_set = builder.build().unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
+    let exclusion_set = builder
+        .build()
+        .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
 
     // Incremental: only copy files modified after last_run
     let since: Option<std::time::SystemTime> = if dest.incremental {
-        dest.last_run.map(|dt| {
-            std::time::UNIX_EPOCH + std::time::Duration::from_secs(dt.timestamp() as u64)
-        })
+        dest.last_run
+            .map(|dt| std::time::UNIX_EPOCH + std::time::Duration::from_secs(dt.timestamp() as u64))
     } else {
         None
     };
@@ -72,7 +73,9 @@ pub async fn preview_backup(
 
     match source.source_type {
         SourceType::File => {
-            let size = std::fs::metadata(&source.path).map(|m| m.len()).unwrap_or(0);
+            let size = std::fs::metadata(&source.path)
+                .map(|m| m.len())
+                .unwrap_or(0);
             let file_name = std::path::Path::new(&source.path)
                 .file_name()
                 .unwrap_or_default()
@@ -80,21 +83,38 @@ pub async fn preview_backup(
                 .to_string();
             copy_count = 1;
             copy_bytes = size;
-            files.push(PreviewFile { rel_path: file_name, size_bytes: size, will_copy: true });
+            files.push(PreviewFile {
+                rel_path: file_name,
+                size_bytes: size,
+                will_copy: true,
+            });
         }
         SourceType::Directory => {
             let source_path = std::path::Path::new(&source.path);
-            for entry in walkdir::WalkDir::new(source_path).into_iter().filter_map(|e| e.ok()) {
-                if !entry.file_type().is_file() { continue; }
+            for entry in walkdir::WalkDir::new(source_path)
+                .into_iter()
+                .filter_map(|e| e.ok())
+            {
+                if !entry.file_type().is_file() {
+                    continue;
+                }
 
-                let rel_path = entry.path().strip_prefix(source_path).unwrap_or(entry.path());
-                if rel_path == std::path::Path::new("") { continue; }
-                if exclusion_set.is_match(rel_path) { continue; }
+                let rel_path = entry
+                    .path()
+                    .strip_prefix(source_path)
+                    .unwrap_or(entry.path());
+                if rel_path == std::path::Path::new("") {
+                    continue;
+                }
+                if exclusion_set.is_match(rel_path) {
+                    continue;
+                }
 
                 let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
 
                 let will_copy = match since {
-                    Some(since_time) => entry.metadata()
+                    Some(since_time) => entry
+                        .metadata()
                         .ok()
                         .and_then(|m| m.modified().ok())
                         .map(|modified| modified > since_time)

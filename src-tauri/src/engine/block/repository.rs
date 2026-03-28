@@ -71,7 +71,7 @@ mod encryption {
 /// The main block-level backup repository.
 pub struct Repository {
     store: Box<dyn BlockStore>,
-    config: RepoConfig,
+    _config: RepoConfig,
     encryption_key: Option<[u8; 32]>,
 }
 
@@ -103,7 +103,7 @@ impl Repository {
 
         Ok(Self {
             store,
-            config,
+            _config: config,
             encryption_key,
         })
     }
@@ -162,9 +162,8 @@ impl Repository {
                         // Check if block hash differs from parent
                         match parent_blocks {
                             Some(parent_file) => {
-                                let parent_desc = parent_file
-                                    .iter()
-                                    .find(|b| b.index == desc.index);
+                                let parent_desc =
+                                    parent_file.iter().find(|b| b.index == desc.index);
                                 match parent_desc {
                                     Some(pd) => pd.hash != desc.hash,
                                     None => true, // New block (file grew)
@@ -235,11 +234,7 @@ impl Repository {
     }
 
     /// Restores a snapshot to the given target path.
-    pub async fn restore(
-        &self,
-        snapshot_id: &str,
-        target_path: &Path,
-    ) -> anyhow::Result<()> {
+    pub async fn restore(&self, snapshot_id: &str, target_path: &Path) -> anyhow::Result<()> {
         let snapshot = self.store.get_snapshot(snapshot_id).await?;
 
         // Build restore chain based on level
@@ -317,11 +312,7 @@ impl Repository {
                     .filter(|(_, &f)| !f)
                     .map(|(i, _)| i)
                     .collect();
-                anyhow::bail!(
-                    "Missing chunks for {}: {:?}",
-                    file_map.path,
-                    missing
-                );
+                anyhow::bail!("Missing chunks for {}: {:?}", file_map.path, missing);
             }
 
             // Verify integrity
@@ -386,10 +377,7 @@ impl Repository {
         let mut bytes_freed: u64 = 0;
 
         // Remove sets beyond keep_count
-        let to_remove: Vec<Vec<String>> = sets
-            .into_iter()
-            .skip(keep_count as usize)
-            .collect();
+        let to_remove: Vec<Vec<String>> = sets.into_iter().skip(keep_count as usize).collect();
 
         for set in &to_remove {
             for id in set {
@@ -432,9 +420,7 @@ impl Repository {
                 let snapshots = self.store.list_snapshots().await?;
                 let level0 = snapshots
                     .iter()
-                    .find(|s| {
-                        s.source_name == source_name && s.level == BackupLevel::Level0
-                    })
+                    .find(|s| s.source_name == source_name && s.level == BackupLevel::Level0)
                     .ok_or_else(|| {
                         anyhow::anyhow!(
                             "No Level 0 backup found for source '{}'. \
@@ -579,8 +565,8 @@ impl Repository {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::store::LocalBlockStore;
+    use super::*;
     use tempfile::TempDir;
 
     async fn setup_repo(dir: &TempDir) -> Repository {
@@ -625,7 +611,9 @@ mod tests {
         assert_eq!(snapshot.savings_ratio(), 0.0); // Full backup
 
         // Restore
-        repo.restore(&snapshot.id, restore_dir.path()).await.unwrap();
+        repo.restore(&snapshot.id, restore_dir.path())
+            .await
+            .unwrap();
 
         assert_eq!(
             std::fs::read_to_string(restore_dir.path().join("file1.txt")).unwrap(),
@@ -802,7 +790,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(snap1.changed_blocks, 0, "No blocks should be stored when nothing changed");
+        assert_eq!(
+            snap1.changed_blocks, 0,
+            "No blocks should be stored when nothing changed"
+        );
         assert_eq!(snap1.changed_bytes, 0);
         assert!((snap1.savings_ratio() - 1.0).abs() < f64::EPSILON);
     }
@@ -833,7 +824,9 @@ mod tests {
 
         assert_eq!(snapshot.files.len(), 1);
 
-        repo.restore(&snapshot.id, restore_dir.path()).await.unwrap();
+        repo.restore(&snapshot.id, restore_dir.path())
+            .await
+            .unwrap();
         assert_eq!(
             std::fs::read_to_string(restore_dir.path().join("document.txt")).unwrap(),
             "Important document content"
@@ -937,7 +930,9 @@ mod tests {
             .await
             .unwrap();
 
-        repo.restore(&snapshot.id, restore_dir.path()).await.unwrap();
+        repo.restore(&snapshot.id, restore_dir.path())
+            .await
+            .unwrap();
 
         assert_eq!(
             std::fs::read_to_string(restore_dir.path().join("secret.txt")).unwrap(),

@@ -1,5 +1,5 @@
+use crate::engine::{oauth_copier, oauth_token};
 use crate::models::OAuthConfig;
-use crate::engine::{oauth_token, oauth_copier};
 
 /// Runs the full OAuth2 PKCE flow:
 /// 1. Binds a local port
@@ -11,7 +11,7 @@ use crate::engine::{oauth_token, oauth_copier};
 #[tauri::command]
 #[specta::specta]
 pub async fn run_oauth_flow(
-    provider:    String,   // "onedrive" | "gdrive" | "dropbox"
+    provider: String, // "onedrive" | "gdrive" | "dropbox"
     folder_path: String,
 ) -> Result<OAuthConfig, String> {
     // Dropbox requires a pre-registered redirect URI, so we use a fixed port.
@@ -24,17 +24,16 @@ pub async fn run_oauth_flow(
     let listener = tokio::net::TcpListener::bind(bind_addr)
         .await
         .map_err(|e| format!("Port bağlanamadı: {}", e))?;
-    let port = listener.local_addr()
+    let port = listener
+        .local_addr()
         .map_err(|e| format!("Port alınamadı: {}", e))?
         .port();
 
     // Build PKCE session + auth URL
-    let session = oauth_token::build_pkce_session(&provider, port)
-        .map_err(|e| e.to_string())?;
+    let session = oauth_token::build_pkce_session(&provider, port).map_err(|e| e.to_string())?;
 
     // Open system browser
-    open::that(&session.auth_url)
-        .map_err(|e| format!("Tarayıcı açılamadı: {}", e))?;
+    open::that(&session.auth_url).map_err(|e| format!("Tarayıcı açılamadı: {}", e))?;
 
     // Wait for callback
     let code = oauth_token::await_callback(listener, &session.state)
@@ -43,11 +42,16 @@ pub async fn run_oauth_flow(
 
     // Exchange code for tokens
     let mut config = oauth_token::exchange_code(
-        &provider, &code,
-        &session.code_verifier, &session.redirect_uri,
+        &provider,
+        &code,
+        &session.code_verifier,
+        &session.redirect_uri,
     )
     .await
-    .map_err(|e| { log::error!("OAuth exchange_code hatası: {}", e); e.to_string() })?;
+    .map_err(|e| {
+        log::error!("OAuth exchange_code hatası: {}", e);
+        e.to_string()
+    })?;
 
     config.folder_path = if folder_path.is_empty() {
         "/ShadowVault".to_string()
@@ -62,11 +66,8 @@ pub async fn run_oauth_flow(
 /// Refreshes the token silently if needed.
 #[tauri::command]
 #[specta::specta]
-pub async fn test_oauth_connection(
-    oauth_config: serde_json::Value,
-) -> Result<(), String> {
-    let config: OAuthConfig = serde_json::from_value(oauth_config)
-        .map_err(|e| e.to_string())?;
+pub async fn test_oauth_connection(oauth_config: serde_json::Value) -> Result<(), String> {
+    let config: OAuthConfig = serde_json::from_value(oauth_config).map_err(|e| e.to_string())?;
     oauth_copier::test_connection(&config)
         .await
         .map_err(|e| e.to_string())

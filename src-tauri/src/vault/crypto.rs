@@ -2,12 +2,12 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
 };
-use chacha20poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
+use anyhow::{anyhow, Result};
 use argon2::{Argon2, Params, Version};
+use chacha20poly1305::{ChaCha20Poly1305, XChaCha20Poly1305};
 use hkdf::Hkdf;
 use sha2::Sha256;
 use zeroize::Zeroize;
-use anyhow::{anyhow, Result};
 
 /// Desteklenen algoritmalar
 pub const ALGO_AES_256_GCM: &str = "AES-256-GCM";
@@ -18,8 +18,8 @@ pub const ARGON2_M_COST: u32 = 65536; // 64 MiB
 pub const ARGON2_T_COST: u32 = 3;
 pub const ARGON2_P_COST: u32 = 4;
 pub const SALT_LEN: usize = 32;
-pub const NONCE_LEN: usize = 12;    // AES-GCM + ChaCha20
-pub const XNONCE_LEN: usize = 24;   // XChaCha20
+pub const NONCE_LEN: usize = 12; // AES-GCM + ChaCha20
+pub const XNONCE_LEN: usize = 24; // XChaCha20
 pub const KEY_LEN: usize = 32;
 
 /// Argon2id ile master key türetme.
@@ -77,8 +77,8 @@ pub fn decrypt(key: &[u8; KEY_LEN], data: &[u8]) -> Result<Vec<u8>> {
 // ─── ChaCha20-Poly1305 ───────────────────────────────────────────────────────
 
 fn encrypt_chacha20(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<Vec<u8>> {
-    let cipher = ChaCha20Poly1305::new_from_slice(key)
-        .map_err(|e| anyhow!("ChaCha20 key error: {e}"))?;
+    let cipher =
+        ChaCha20Poly1305::new_from_slice(key).map_err(|e| anyhow!("ChaCha20 key error: {e}"))?;
     let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
@@ -95,8 +95,8 @@ fn decrypt_chacha20(key: &[u8; KEY_LEN], data: &[u8]) -> Result<Vec<u8>> {
         return Err(anyhow!("Ciphertext too short"));
     }
     let (nonce_bytes, ciphertext) = data.split_at(NONCE_LEN);
-    let cipher = ChaCha20Poly1305::new_from_slice(key)
-        .map_err(|e| anyhow!("ChaCha20 key error: {e}"))?;
+    let cipher =
+        ChaCha20Poly1305::new_from_slice(key).map_err(|e| anyhow!("ChaCha20 key error: {e}"))?;
     let nonce = chacha20poly1305::Nonce::from_slice(nonce_bytes);
     cipher
         .decrypt(nonce, ciphertext)
@@ -106,8 +106,8 @@ fn decrypt_chacha20(key: &[u8; KEY_LEN], data: &[u8]) -> Result<Vec<u8>> {
 // ─── XChaCha20-Poly1305 ──────────────────────────────────────────────────────
 
 fn encrypt_xchacha20(key: &[u8; KEY_LEN], plaintext: &[u8]) -> Result<Vec<u8>> {
-    let cipher = XChaCha20Poly1305::new_from_slice(key)
-        .map_err(|e| anyhow!("XChaCha20 key error: {e}"))?;
+    let cipher =
+        XChaCha20Poly1305::new_from_slice(key).map_err(|e| anyhow!("XChaCha20 key error: {e}"))?;
     let nonce = XChaCha20Poly1305::generate_nonce(&mut OsRng);
     let ciphertext = cipher
         .encrypt(&nonce, plaintext)
@@ -124,8 +124,8 @@ fn decrypt_xchacha20(key: &[u8; KEY_LEN], data: &[u8]) -> Result<Vec<u8>> {
         return Err(anyhow!("Ciphertext too short"));
     }
     let (nonce_bytes, ciphertext) = data.split_at(XNONCE_LEN);
-    let cipher = XChaCha20Poly1305::new_from_slice(key)
-        .map_err(|e| anyhow!("XChaCha20 key error: {e}"))?;
+    let cipher =
+        XChaCha20Poly1305::new_from_slice(key).map_err(|e| anyhow!("XChaCha20 key error: {e}"))?;
     let nonce = chacha20poly1305::XNonce::from_slice(nonce_bytes);
     cipher
         .decrypt(nonce, ciphertext)

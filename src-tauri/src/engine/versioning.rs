@@ -1,6 +1,6 @@
-use std::path::{Path, PathBuf};
-use chrono::{DateTime, Utc};
 use crate::models::VersionNaming;
+use chrono::{DateTime, Utc};
+use std::path::{Path, PathBuf};
 
 pub fn compute_version_path(
     destination_base: &str,
@@ -126,7 +126,8 @@ mod tests {
 
     #[test]
     fn test_timestamp_naming() {
-        let path = compute_version_path("/backups", "mydata", &VersionNaming::Timestamp, fixed_now());
+        let path =
+            compute_version_path("/backups", "mydata", &VersionNaming::Timestamp, fixed_now());
         assert_eq!(
             path,
             std::path::PathBuf::from("/backups/mydata_2024-01-15T14-30-00Z")
@@ -135,7 +136,8 @@ mod tests {
 
     #[test]
     fn test_overwrite_naming() {
-        let path = compute_version_path("/backups", "mydata", &VersionNaming::Overwrite, fixed_now());
+        let path =
+            compute_version_path("/backups", "mydata", &VersionNaming::Overwrite, fixed_now());
         assert_eq!(path, std::path::PathBuf::from("/backups/mydata"));
     }
 

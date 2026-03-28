@@ -1,14 +1,11 @@
-use tauri::State;
-use crate::AppState;
 use crate::db::queries;
+use crate::AppState;
+use tauri::State;
 
 /// Sends a test email to verify the Resend email notification setup.
 #[tauri::command]
 #[specta::specta]
-pub async fn send_test_email(
-    state: State<'_, AppState>,
-    to: String,
-) -> Result<(), String> {
+pub async fn send_test_email(state: State<'_, AppState>, to: String) -> Result<(), String> {
     if !crate::notifications::is_valid_email(&to) {
         return Err(format!("Geçersiz e-posta adresi: '{}'", to.trim()));
     }

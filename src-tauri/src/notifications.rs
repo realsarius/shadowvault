@@ -4,7 +4,9 @@ use tauri_plugin_notification::NotificationExt;
 /// Minimal email format check: non-empty local part, single '@', domain with a dot.
 pub(crate) fn is_valid_email(email: &str) -> bool {
     let t = email.trim();
-    if t.is_empty() { return false; }
+    if t.is_empty() {
+        return false;
+    }
     let mut parts = t.splitn(2, '@');
     let local = parts.next().unwrap_or("");
     let domain = parts.next().unwrap_or("");
@@ -33,7 +35,16 @@ pub fn notify_copy_result(
     trigger: &str,
     error: Option<&str>,
 ) {
-    notify_copy_result_with_level(app, source_name, files_copied, bytes_copied, trigger, error, None, None);
+    notify_copy_result_with_level(
+        app,
+        source_name,
+        files_copied,
+        bytes_copied,
+        trigger,
+        error,
+        None,
+        None,
+    );
 }
 
 pub fn notify_copy_result_with_level(
@@ -109,14 +120,20 @@ pub async fn send_backup_email(
     };
 
     if RESEND_API_KEY.is_empty() {
-        log::warn!("Email notification configured but SHADOWVAULT_RESEND_API_KEY not set at build time");
+        log::warn!(
+            "Email notification configured but SHADOWVAULT_RESEND_API_KEY not set at build time"
+        );
         return;
     }
 
     let (subject, html) = build_email_content(source_name, files_copied, bytes_copied, error);
 
     if let Err(e) = call_resend_api(&email, &subject, &html).await {
-        log::warn!("Failed to send backup notification email to {}: {}", email, e);
+        log::warn!(
+            "Failed to send backup notification email to {}: {}",
+            email,
+            e
+        );
     } else {
         log::info!("Backup notification email sent to {}", email);
     }

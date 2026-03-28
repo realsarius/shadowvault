@@ -165,7 +165,9 @@ impl BlockStore for LocalBlockStore {
         file_hash: &str,
         block_index: u32,
     ) -> anyhow::Result<bool> {
-        Ok(self.block_path(snapshot_id, file_hash, block_index).exists())
+        Ok(self
+            .block_path(snapshot_id, file_hash, block_index)
+            .exists())
     }
 
     async fn delete_snapshot_blocks(&self, snapshot_id: &str) -> anyhow::Result<()> {

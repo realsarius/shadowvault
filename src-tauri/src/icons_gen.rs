@@ -4,8 +4,8 @@
 pub fn make_tray_rgba(state: &str) -> Vec<u8> {
     let (r, g, b) = match state {
         "paused" => (0xf5u8, 0xa6u8, 0x23u8), // sarı
-        "error"  => (0xffu8, 0x4du8, 0x4du8), // kırmızı
-        _        => (0x4au8, 0x7cu8, 0xffu8), // mavi
+        "error" => (0xffu8, 0x4du8, 0x4du8),  // kırmızı
+        _ => (0x4au8, 0x7cu8, 0xffu8),        // mavi
     };
 
     let mut img = vec![0u8; 32 * 32 * 4];
@@ -22,8 +22,8 @@ pub fn make_tray_rgba(state: &str) -> Vec<u8> {
     // Durum sembolü (beyaz)
     match state {
         "paused" => draw_pause(&mut img),
-        "error"  => draw_x(&mut img),
-        _        => draw_check(&mut img),
+        "error" => draw_x(&mut img),
+        _ => draw_check(&mut img),
     }
 
     img
@@ -32,19 +32,19 @@ pub fn make_tray_rgba(state: &str) -> Vec<u8> {
 // Shield şekli: 32×32 içinde beşgen (üst yuvarlak, alt sivri)
 fn shield_range(y: i32) -> Option<(i32, i32)> {
     match y {
-        2..=4  => Some((7 + (4 - y), 24 - (4 - y))),  // üst hafif girintili
-        5..=19 => Some((5, 26)),                         // gövde
-        20     => Some((6, 25)),
-        21     => Some((7, 24)),
-        22     => Some((8, 23)),
-        23     => Some((9, 22)),
-        24     => Some((10, 21)),
-        25     => Some((11, 20)),
-        26     => Some((12, 19)),
-        27     => Some((13, 18)),
-        28     => Some((14, 17)),
-        29     => Some((15, 16)),
-        _      => None,
+        2..=4 => Some((7 + (4 - y), 24 - (4 - y))), // üst hafif girintili
+        5..=19 => Some((5, 26)),                    // gövde
+        20 => Some((6, 25)),
+        21 => Some((7, 24)),
+        22 => Some((8, 23)),
+        23 => Some((9, 22)),
+        24 => Some((10, 21)),
+        25 => Some((11, 20)),
+        26 => Some((12, 19)),
+        27 => Some((13, 18)),
+        28 => Some((14, 17)),
+        29 => Some((15, 16)),
+        _ => None,
     }
 }
 
@@ -91,7 +91,7 @@ fn set_px(img: &mut Vec<u8>, x: i32, y: i32, r: u8, g: u8, b: u8, a: u8) {
         return;
     }
     let idx = ((y * 32 + x) * 4) as usize;
-    img[idx]     = r;
+    img[idx] = r;
     img[idx + 1] = g;
     img[idx + 2] = b;
     img[idx + 3] = a;

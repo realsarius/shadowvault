@@ -1,10 +1,10 @@
+use serde::Serialize;
 use tauri::State;
 use uuid::Uuid;
-use serde::Serialize;
 
-use crate::AppState;
+use crate::crypto_utils::{hw_decrypt_string, hw_encrypt, hw_id_raw};
 use crate::db::queries;
-use crate::crypto_utils::{hw_id_raw, hw_encrypt, hw_decrypt_string};
+use crate::AppState;
 
 const LICENSE_API: &str = "https://license.berkansozer.com";
 
@@ -75,7 +75,10 @@ pub async fn activate_license(
 
     let response = client
         .post(format!("{}/licenses/activate", LICENSE_API))
-        .json(&LicenseApiRequest { key: key.clone(), hardware_id: hw_id })
+        .json(&LicenseApiRequest {
+            key: key.clone(),
+            hardware_id: hw_id,
+        })
         .send()
         .await
         .map_err(|e| format!("Sunucuya bağlanılamadı: {}", e))?;
@@ -90,14 +93,20 @@ pub async fn activate_license(
         queries::upsert_setting(&state.db, "license_key", &encrypted)
             .await
             .map_err(|e| e.to_string())?;
-        Ok(ActivateResult { success: true, error: None })
+        Ok(ActivateResult {
+            success: true,
+            error: None,
+        })
     } else {
         let msg = data
             .get("message")
             .and_then(|v| v.as_str())
             .unwrap_or("Geçersiz lisans anahtarı.")
             .to_string();
-        Ok(ActivateResult { success: false, error: Some(msg) })
+        Ok(ActivateResult {
+            success: false,
+            error: Some(msg),
+        })
     }
 }
 
@@ -114,12 +123,24 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<ValidateResu
         .map_err(|e| e.to_string())?
     {
         Some(k) if !k.is_empty() => k,
-        _ => return Ok(ValidateResult { status: "invalid".to_string(), offline: None, cached: None }),
+        _ => {
+            return Ok(ValidateResult {
+                status: "invalid".to_string(),
+                offline: None,
+                cached: None,
+            })
+        }
     };
 
     let key = match resolve_stored_key(&stored) {
         Some(k) => k,
-        None => return Ok(ValidateResult { status: "invalid".to_string(), offline: None, cached: None }),
+        None => {
+            return Ok(ValidateResult {
+                status: "invalid".to_string(),
+                offline: None,
+                cached: None,
+            })
+        }
     };
 
     // Rate limit: if last validation was < 60s ago, return cached "valid"
@@ -127,7 +148,11 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<ValidateResu
         if let Ok(ts) = ts_str.parse::<i64>() {
             let elapsed = chrono::Utc::now().timestamp() - ts;
             if elapsed < 60 {
-                return Ok(ValidateResult { status: "valid".to_string(), offline: None, cached: Some(true) });
+                return Ok(ValidateResult {
+                    status: "valid".to_string(),
+                    offline: None,
+                    cached: Some(true),
+                });
             }
         }
     }
@@ -139,7 +164,10 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<ValidateResu
 
     match client
         .post(format!("{}/licenses/validate", LICENSE_API))
-        .json(&LicenseApiRequest { key, hardware_id: hw_id })
+        .json(&LicenseApiRequest {
+            key,
+            hardware_id: hw_id,
+        })
         .send()
         .await
     {
@@ -151,14 +179,21 @@ pub async fn validate_license(state: State<'_, AppState>) -> Result<ValidateResu
                     &state.db,
                     "license_validated_at",
                     &chrono::Utc::now().timestamp().to_string(),
-                ).await;
+                )
+                .await;
             }
             let status = if valid { "valid" } else { "invalid" }.to_string();
-            Ok(ValidateResult { status, offline: None, cached: None })
+            Ok(ValidateResult {
+                status,
+                offline: None,
+                cached: None,
+            })
         }
-        Err(_) => {
-            Ok(ValidateResult { status: "valid".to_string(), offline: Some(true), cached: None })
-        }
+        Err(_) => Ok(ValidateResult {
+            status: "valid".to_string(),
+            offline: Some(true),
+            cached: None,
+        }),
     }
 }
 
@@ -171,7 +206,11 @@ pub async fn get_stored_license(state: State<'_, AppState>) -> Result<Option<Str
         .map_err(|e| e.to_string())?;
 
     Ok(stored.and_then(|k| {
-        if k.is_empty() { None } else { resolve_stored_key(&k) }
+        if k.is_empty() {
+            None
+        } else {
+            resolve_stored_key(&k)
+        }
     }))
 }
 
@@ -187,7 +226,10 @@ pub async fn store_license(state: State<'_, AppState>, key: String) -> Result<()
 
 /// Core activation logic shared between the Tauri command and the deep link handler.
 /// Returns Ok(true) if activated, Ok(false) if invalid key.
-pub async fn activate_license_with_key(db: &std::sync::Arc<sqlx::SqlitePool>, key: &str) -> anyhow::Result<bool> {
+pub async fn activate_license_with_key(
+    db: &std::sync::Arc<sqlx::SqlitePool>,
+    key: &str,
+) -> anyhow::Result<bool> {
     let hw_id = hardware_id_formatted(&hw_id_raw());
 
     let client = reqwest::Client::builder()
@@ -196,7 +238,10 @@ pub async fn activate_license_with_key(db: &std::sync::Arc<sqlx::SqlitePool>, ke
 
     let response = client
         .post(format!("{}/licenses/activate", LICENSE_API))
-        .json(&LicenseApiRequest { key: key.to_string(), hardware_id: hw_id })
+        .json(&LicenseApiRequest {
+            key: key.to_string(),
+            hardware_id: hw_id,
+        })
         .send()
         .await
         .map_err(|e| anyhow::anyhow!("Sunucuya bağlanılamadı: {}", e))?;
@@ -244,16 +289,23 @@ pub async fn deactivate_license(state: State<'_, AppState>) -> Result<(), String
 
             let resp = client
                 .post(format!("{}/licenses/deactivate", LICENSE_API))
-                .json(&LicenseApiRequest { key, hardware_id: hw_id })
+                .json(&LicenseApiRequest {
+                    key,
+                    hardware_id: hw_id,
+                })
                 .send()
                 .await;
 
             // If server is unreachable we still clear locally so the user isn't stuck.
             if let Ok(r) = resp {
                 let data: serde_json::Value = r.json().await.unwrap_or_default();
-                let ok = data.get("deactivated").and_then(|v| v.as_bool()).unwrap_or(true);
+                let ok = data
+                    .get("deactivated")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
                 if !ok {
-                    let msg = data.get("message")
+                    let msg = data
+                        .get("message")
                         .and_then(|v| v.as_str())
                         .unwrap_or("Deaktivasyon başarısız.")
                         .to_string();

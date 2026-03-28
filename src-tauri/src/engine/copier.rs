@@ -1,20 +1,17 @@
-use std::sync::Arc;
-use std::io::Read;
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::Utc;
-use sqlx::SqlitePool;
-use sha2::{Sha256, Digest};
 use globset::{Glob, GlobSetBuilder};
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use sqlx::SqlitePool;
+use std::sync::Arc;
 
 use tauri::Emitter;
 
-use crate::models::{Source, Destination, SourceType, LogEntry};
+use crate::crypto_utils::hw_decrypt;
 use crate::db::queries;
-use crate::engine::versioning;
-use crate::engine::block::store::LocalBlockStore;
 use crate::engine::block::repository::Repository;
 use crate::engine::block::snapshot::{BackupLevel, EncryptionConfig};
-use crate::crypto_utils::hw_decrypt;
+use crate::engine::block::store::LocalBlockStore;
+use crate::models::{Destination, LogEntry, Source, SourceType};
 
 pub struct CopyJob {
     pub source: Source,
@@ -32,7 +29,9 @@ const BLOCKED_DEST_PREFIXES: &[&str] = &[
 ];
 #[cfg(windows)]
 const BLOCKED_DEST_PREFIXES: &[&str] = &[
-    "C:\\Windows", "C:\\Program Files", "C:\\System Volume Information",
+    "C:\\Windows",
+    "C:\\Program Files",
+    "C:\\System Volume Information",
 ];
 
 // ── Backup encryption helpers ─────────────────────────────────────────────────
@@ -48,90 +47,34 @@ fn derive_backup_key(encrypt_password_enc: &str, encrypt_salt: &str) -> anyhow::
 
     // 2. Derive Argon2id key from password + salt
     let salt_bytes = BASE64.decode(encrypt_salt)?;
-    let params = Params::new(65536, 3, 4, Some(32))
-        .map_err(|e| anyhow::anyhow!("Argon2 params: {e}"))?;
+    let params =
+        Params::new(65536, 3, 4, Some(32)).map_err(|e| anyhow::anyhow!("Argon2 params: {e}"))?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
     let mut master_key = [0u8; 32];
-    argon2.hash_password_into(password.as_bytes(), &salt_bytes, &mut master_key)
+    argon2
+        .hash_password_into(password.as_bytes(), &salt_bytes, &mut master_key)
         .map_err(|e| anyhow::anyhow!("Argon2 hash: {e}"))?;
     Ok(master_key)
 }
 
 /// Derives Argon2id key directly from a plaintext password + base64 salt.
-pub fn derive_backup_key_from_password(password: &str, encrypt_salt: &str) -> anyhow::Result<[u8; 32]> {
+pub fn derive_backup_key_from_password(
+    password: &str,
+    encrypt_salt: &str,
+) -> anyhow::Result<[u8; 32]> {
     use argon2::{Argon2, Params, Version};
     let salt_bytes = BASE64.decode(encrypt_salt)?;
-    let params = Params::new(65536, 3, 4, Some(32))
-        .map_err(|e| anyhow::anyhow!("Argon2 params: {e}"))?;
+    let params =
+        Params::new(65536, 3, 4, Some(32)).map_err(|e| anyhow::anyhow!("Argon2 params: {e}"))?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, Version::V0x13, params);
     let mut master_key = [0u8; 32];
-    argon2.hash_password_into(password.as_bytes(), &salt_bytes, &mut master_key)
+    argon2
+        .hash_password_into(password.as_bytes(), &salt_bytes, &mut master_key)
         .map_err(|e| anyhow::anyhow!("Argon2 hash: {e}"))?;
     Ok(master_key)
 }
 
-/// Encrypts all files in `dir` with AES-256-GCM and writes a manifest.
-/// Files are renamed to `<name>.enc`; original files are removed.
-fn encrypt_backup_dir(dir: &std::path::Path, key: &[u8; 32], salt_b64: &str) -> anyhow::Result<()> {
-    use aes_gcm::{aead::{Aead, AeadCore, KeyInit, OsRng}, Aes256Gcm, Key};
-    use std::io::Write;
-
-    let manifest = serde_json::json!({
-        "encrypted": true,
-        "algorithm": "AES-256-GCM",
-        "argon2_salt": salt_b64,
-        "argon2_m_cost": 65536,
-        "argon2_t_cost": 3,
-        "argon2_p_cost": 4,
-    });
-    let manifest_path = dir.join("shadowvault_enc_manifest.json");
-    let mut f = std::fs::File::create(&manifest_path)?;
-    f.write_all(manifest.to_string().as_bytes())?;
-
-    let cipher_key = Key::<Aes256Gcm>::from_slice(key);
-    let cipher = Aes256Gcm::new(cipher_key);
-
-    for entry in walkdir::WalkDir::new(dir) {
-        let entry = entry?;
-        if !entry.file_type().is_file() { continue; }
-        let path = entry.path();
-        // Skip the manifest itself
-        if path == manifest_path { continue; }
-        // Skip already-encrypted files
-        if path.extension().and_then(|e| e.to_str()) == Some("enc") { continue; }
-
-        let plaintext = std::fs::read(path)?;
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
-        let ciphertext = cipher.encrypt(&nonce, plaintext.as_ref())
-            .map_err(|_| anyhow::anyhow!("Encryption failed for {:?}", path))?;
-
-        let mut out = Vec::with_capacity(12 + ciphertext.len());
-        out.extend_from_slice(&nonce);
-        out.extend_from_slice(&ciphertext);
-
-        let enc_path = path.with_file_name(
-            format!("{}.enc", path.file_name().unwrap().to_string_lossy())
-        );
-        std::fs::write(&enc_path, &out)?;
-        std::fs::remove_file(path)?;
-    }
-
-    Ok(())
-}
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-fn compute_file_hash(path: &std::path::Path) -> anyhow::Result<String> {
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 { break; }
-        hasher.update(&buf[..n]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
 
 fn build_exclusion_set(patterns: &[String]) -> globset::GlobSet {
     let mut builder = GlobSetBuilder::new();
@@ -142,7 +85,9 @@ fn build_exclusion_set(patterns: &[String]) -> globset::GlobSet {
             log::warn!("Invalid exclusion pattern: {}", p);
         }
     }
-    builder.build().unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap())
+    builder
+        .build()
+        .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap())
 }
 
 // ── CopyJob ──────────────────────────────────────────────────────────────────
@@ -161,7 +106,10 @@ impl CopyJob {
         if dst.exists() {
             let meta = std::fs::symlink_metadata(dst)?;
             if meta.file_type().is_symlink() {
-                anyhow::bail!("Hedef yol bir sembolik bağ — güvenlik ihlali: {}", self.destination.path);
+                anyhow::bail!(
+                    "Hedef yol bir sembolik bağ — güvenlik ihlali: {}",
+                    self.destination.path
+                );
             }
         }
 
@@ -172,7 +120,8 @@ impl CopyJob {
             let mut check = dst;
             loop {
                 if check.exists() {
-                    break check.canonicalize()?
+                    break check
+                        .canonicalize()?
                         .join(dst.strip_prefix(check).unwrap_or(std::path::Path::new("")));
                 }
                 match check.parent() {
@@ -184,10 +133,16 @@ impl CopyJob {
 
         // Circular copy guards
         if dst_canonical.starts_with(&src_canonical) {
-            anyhow::bail!("Hedef yol kaynak klasörün içinde olamaz: {}", self.destination.path);
+            anyhow::bail!(
+                "Hedef yol kaynak klasörün içinde olamaz: {}",
+                self.destination.path
+            );
         }
         if src_canonical.starts_with(&dst_canonical) {
-            anyhow::bail!("Kaynak yol hedef klasörün içinde olamaz: {}", self.source.path);
+            anyhow::bail!(
+                "Kaynak yol hedef klasörün içinde olamaz: {}",
+                self.source.path
+            );
         }
 
         // Block protected system directories
@@ -209,7 +164,9 @@ impl CopyJob {
                     destination: self.destination.clone(),
                     trigger: self.trigger.clone(),
                     app: self.app.clone(),
-                }.execute(db).await;
+                }
+                .execute(db)
+                .await;
             }
             crate::models::DestinationType::Sftp => {
                 return crate::engine::sftp_copier::SftpCopyJob {
@@ -217,7 +174,9 @@ impl CopyJob {
                     destination: self.destination.clone(),
                     trigger: self.trigger.clone(),
                     app: self.app.clone(),
-                }.execute(db).await;
+                }
+                .execute(db)
+                .await;
             }
             crate::models::DestinationType::OneDrive
             | crate::models::DestinationType::GoogleDrive
@@ -227,7 +186,9 @@ impl CopyJob {
                     destination: self.destination.clone(),
                     trigger: self.trigger.clone(),
                     app: self.app.clone(),
-                }.execute(db).await;
+                }
+                .execute(db)
+                .await;
             }
             crate::models::DestinationType::WebDav => {
                 return crate::engine::webdav_copier::WebDavCopyJob {
@@ -235,7 +196,9 @@ impl CopyJob {
                     destination: self.destination.clone(),
                     trigger: self.trigger.clone(),
                     app: self.app.clone(),
-                }.execute(db).await;
+                }
+                .execute(db)
+                .await;
             }
             crate::models::DestinationType::Local => {}
         }
@@ -253,6 +216,8 @@ impl CopyJob {
             started_at,
             "Running",
             &self.trigger,
+            None,
+            None,
         )
         .await?;
 
@@ -283,9 +248,16 @@ impl CopyJob {
 
                 let checksum_ref = checksum.as_deref();
                 queries::update_log_entry_completed(
-                    &db, log_id, ended_at, "Success",
-                    Some(bytes_copied), Some(files_copied),
-                    None, checksum_ref,
+                    &db,
+                    log_id,
+                    ended_at,
+                    "Success",
+                    Some(bytes_copied),
+                    Some(files_copied),
+                    None,
+                    checksum_ref,
+                    Some(&format!("{:?}", snapshot.level)),
+                    Some(&snapshot.id),
                 )
                 .await?;
 
@@ -293,7 +265,9 @@ impl CopyJob {
                 {
                     let store = Box::new(LocalBlockStore::new(&self.destination.path));
                     let encryption_key = self.get_encryption_key();
-                    if let Ok(mut repo) = Repository::open_or_init(store, encryption_key, None).await {
+                    if let Ok(mut repo) =
+                        Repository::open_or_init(store, encryption_key, None).await
+                    {
                         let keep = self.destination.retention.max_versions as u32;
                         if let Err(e) = repo.prune(keep).await {
                             log::warn!("Block prune failed for {}: {}", self.destination.id, e);
@@ -303,7 +277,11 @@ impl CopyJob {
 
                 let next_run = compute_next_run(&self.destination.schedule, ended_at);
                 queries::update_destination_run_status(
-                    &db, &self.destination.id, ended_at, "Success", next_run,
+                    &db,
+                    &self.destination.id,
+                    ended_at,
+                    "Success",
+                    next_run,
                 )
                 .await?;
 
@@ -313,15 +291,23 @@ impl CopyJob {
                     let name = self.source.name.clone();
                     tokio::spawn(async move {
                         crate::notifications::send_backup_email(
-                            &email_db, &name, Some(files_copied), Some(bytes_copied), None,
-                        ).await;
+                            &email_db,
+                            &name,
+                            Some(files_copied),
+                            Some(bytes_copied),
+                            None,
+                        )
+                        .await;
                     });
                 }
 
                 log::info!(
                     "Block backup completed: {} files, {} blocks ({} changed), {} {}% savings",
-                    files_copied, snapshot.total_blocks, snapshot.changed_blocks,
-                    snapshot.level, savings_pct
+                    files_copied,
+                    snapshot.total_blocks,
+                    snapshot.changed_blocks,
+                    snapshot.level,
+                    savings_pct
                 );
 
                 Ok(LogEntry {
@@ -338,20 +324,34 @@ impl CopyJob {
                     error_message: None,
                     trigger: self.trigger.clone(),
                     checksum,
+                    backup_level: Some(format!("{:?}", snapshot.level)),
+                    snapshot_id: Some(snapshot.id),
                 })
             }
             Err(e) => {
                 let error_msg = e.to_string();
 
                 queries::update_log_entry_completed(
-                    &db, log_id, ended_at, "Failed",
-                    None, None, Some(&error_msg), None,
+                    &db,
+                    log_id,
+                    ended_at,
+                    "Failed",
+                    None,
+                    None,
+                    Some(&error_msg),
+                    None,
+                    None,
+                    None,
                 )
                 .await?;
 
                 let next_run = compute_next_run(&self.destination.schedule, ended_at);
                 queries::update_destination_run_status(
-                    &db, &self.destination.id, ended_at, "Failed", next_run,
+                    &db,
+                    &self.destination.id,
+                    ended_at,
+                    "Failed",
+                    next_run,
                 )
                 .await?;
 
@@ -362,8 +362,13 @@ impl CopyJob {
                     let err_clone = error_msg.clone();
                     tokio::spawn(async move {
                         crate::notifications::send_backup_email(
-                            &email_db, &name, None, None, Some(&err_clone),
-                        ).await;
+                            &email_db,
+                            &name,
+                            None,
+                            None,
+                            Some(&err_clone),
+                        )
+                        .await;
                     });
                 }
 
@@ -392,7 +397,9 @@ impl CopyJob {
             }
         };
 
-        if source_size == 0 { return Ok(()); }
+        if source_size == 0 {
+            return Ok(());
+        }
 
         let disks = Disks::new_with_refreshed_list();
         let dest = std::path::Path::new(&self.destination.path);
@@ -408,23 +415,12 @@ impl CopyJob {
         if available < required {
             anyhow::bail!(
                 "Disk space insufficient: need {} bytes, only {} available at destination",
-                required, available
+                required,
+                available
             );
         }
 
         Ok(())
-    }
-
-    fn emit_progress(&self, files_done: i32, files_total: i32, bytes_done: i64, bytes_total: i64) {
-        if let Some(app) = &self.app {
-            let _ = app.emit("copy-progress", serde_json::json!({
-                "destination_id": &self.destination.id,
-                "files_done": files_done,
-                "files_total": files_total,
-                "bytes_done": bytes_done,
-                "bytes_total": bytes_total,
-            }));
-        }
     }
 
     /// Derives the encryption key from the destination's stored password, if encryption is enabled.
@@ -432,9 +428,10 @@ impl CopyJob {
         if !self.destination.encrypt {
             return None;
         }
-        if let (Some(ref enc_pwd), Some(ref enc_salt)) =
-            (&self.destination.encrypt_password_enc, &self.destination.encrypt_salt)
-        {
+        if let (Some(ref enc_pwd), Some(ref enc_salt)) = (
+            &self.destination.encrypt_password_enc,
+            &self.destination.encrypt_salt,
+        ) {
             derive_backup_key(enc_pwd, enc_salt).ok()
         } else {
             None
@@ -447,7 +444,9 @@ impl CopyJob {
         let exclusion_set = build_exclusion_set(&self.destination.exclusions);
 
         let encryption_key = self.get_encryption_key();
-        let enc_config = if let (Some(_key), Some(ref salt)) = (encryption_key, &self.destination.encrypt_salt) {
+        let enc_config = if let (Some(_key), Some(ref salt)) =
+            (encryption_key, &self.destination.encrypt_salt)
+        {
             Some(EncryptionConfig {
                 algorithm: "AES-256-GCM".into(),
                 argon2_salt: salt.clone(),
@@ -466,15 +465,27 @@ impl CopyJob {
         // 1. Explicitly set by scheduler → use it
         // 2. Manual trigger → Level 0 (full)
         // Safety: if Level 1 requested but no Level 0 exists, force Level 0
-        let mut level = self.backup_level.unwrap_or(BackupLevel::Level0);
+        let mut level = self.backup_level.unwrap_or_else(|| {
+            if self.destination.incremental {
+                BackupLevel::Level1Cumulative
+            } else {
+                BackupLevel::Level0
+            }
+        });
 
-        if matches!(level, BackupLevel::Level1Cumulative | BackupLevel::Level1Differential) {
+        if matches!(
+            level,
+            BackupLevel::Level1Cumulative | BackupLevel::Level1Differential
+        ) {
             let snapshots = repo.list_snapshots().await?;
-            let has_level0 = snapshots.iter().any(|s| {
-                s.source_name == self.source.name && s.level == BackupLevel::Level0
-            });
+            let has_level0 = snapshots
+                .iter()
+                .any(|s| s.source_name == self.source.name && s.level == BackupLevel::Level0);
             if !has_level0 {
-                log::info!("No Level 0 found for '{}', forcing Level 0", self.source.name);
+                log::info!(
+                    "No Level 0 found for '{}', forcing Level 0",
+                    self.source.name
+                );
                 level = BackupLevel::Level0;
             }
         }
@@ -484,14 +495,16 @@ impl CopyJob {
             destination_id: self.destination.id.clone(),
         };
 
-        let snapshot = repo.backup(
-            source_path,
-            &self.source.name,
-            &self.source.source_type,
-            &exclusion_set,
-            level,
-            &progress,
-        ).await?;
+        let snapshot = repo
+            .backup(
+                source_path,
+                &self.source.name,
+                &self.source.source_type,
+                &exclusion_set,
+                level,
+                &progress,
+            )
+            .await?;
 
         Ok(snapshot)
     }
@@ -506,25 +519,31 @@ struct TauriProgressReporter {
 impl crate::engine::block::repository::ProgressReporter for TauriProgressReporter {
     fn on_file_start(&self, _path: &str, file_index: u32, total_files: u32) {
         if let Some(app) = &self.app {
-            let _ = app.emit("copy-progress", serde_json::json!({
-                "destination_id": &self.destination_id,
-                "files_done": file_index,
-                "files_total": total_files,
-                "bytes_done": 0,
-                "bytes_total": 0,
-            }));
+            let _ = app.emit(
+                "copy-progress",
+                serde_json::json!({
+                    "destination_id": &self.destination_id,
+                    "files_done": file_index,
+                    "files_total": total_files,
+                    "bytes_done": 0,
+                    "bytes_total": 0,
+                }),
+            );
         }
     }
 
     fn on_file_done(&self, _path: &str, file_index: u32, total_files: u32, bytes: u64) {
         if let Some(app) = &self.app {
-            let _ = app.emit("copy-progress", serde_json::json!({
-                "destination_id": &self.destination_id,
-                "files_done": file_index + 1,
-                "files_total": total_files,
-                "bytes_done": bytes,
-                "bytes_total": 0,
-            }));
+            let _ = app.emit(
+                "copy-progress",
+                serde_json::json!({
+                    "destination_id": &self.destination_id,
+                    "files_done": file_index + 1,
+                    "files_total": total_files,
+                    "bytes_done": bytes,
+                    "bytes_total": 0,
+                }),
+            );
         }
     }
 
@@ -537,9 +556,7 @@ pub(crate) fn compute_next_run(
 ) -> Option<chrono::DateTime<Utc>> {
     use crate::models::Schedule;
     match schedule {
-        Schedule::Interval { minutes } => {
-            Some(after + chrono::Duration::minutes(*minutes as i64))
-        }
+        Schedule::Interval { minutes } => Some(after + chrono::Duration::minutes(*minutes as i64)),
         Schedule::Cron { expression } => {
             use std::str::FromStr;
             match cron::Schedule::from_str(expression) {
@@ -563,10 +580,10 @@ pub fn compute_next_run_pub(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
+    use crate::models::schedule::{RetentionPolicy, Schedule, VersionNaming};
+    use crate::models::{Destination, DestinationType, Source, SourceType};
     use chrono::Utc;
-    use crate::models::{Source, Destination, SourceType, DestinationType};
-    use crate::models::schedule::{Schedule, RetentionPolicy, VersionNaming};
+    use tempfile::TempDir;
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -588,7 +605,10 @@ mod tests {
             source_id: "test-src-id".to_string(),
             path: path.to_string(),
             schedule: Schedule::Manual,
-            retention: RetentionPolicy { max_versions: 5, naming: VersionNaming::Timestamp },
+            retention: RetentionPolicy {
+                max_versions: 5,
+                naming: VersionNaming::Timestamp,
+            },
             exclusions: vec![],
             enabled: true,
             incremental: false,
@@ -612,7 +632,13 @@ mod tests {
     }
 
     fn make_job(source: Source, destination: Destination) -> CopyJob {
-        CopyJob { source, destination, trigger: "Manual".to_string(), app: None, backup_level: None }
+        CopyJob {
+            source,
+            destination,
+            trigger: "Manual".to_string(),
+            app: None,
+            backup_level: None,
+        }
     }
 
     // ── Tests ─────────────────────────────────────────────────────────────────
@@ -679,8 +705,14 @@ mod tests {
         let job2 = make_job(src, dst);
         let snap2 = job2.do_block_backup().await.unwrap();
         assert_eq!(snap2.level, BackupLevel::Level1Cumulative);
-        assert_eq!(snap2.changed_blocks, 0, "Second backup should have zero changed blocks");
-        assert_eq!(snap2.changed_bytes, 0, "Second backup should write zero new bytes");
+        assert_eq!(
+            snap2.changed_blocks, 0,
+            "Second backup should have zero changed blocks"
+        );
+        assert_eq!(
+            snap2.changed_bytes, 0,
+            "Second backup should write zero new bytes"
+        );
     }
 
     #[tokio::test]

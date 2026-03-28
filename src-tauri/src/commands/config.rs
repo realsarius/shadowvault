@@ -1,15 +1,15 @@
-use std::sync::Arc;
-use serde::{Serialize, Deserialize};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use tauri::State;
 use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
-use crate::AppState;
 use crate::db::queries;
-use crate::models::{Source, Destination, SourceType};
-use crate::models::schedule::{Schedule, RetentionPolicy};
+use crate::models::schedule::{RetentionPolicy, Schedule};
+use crate::models::{Destination, Source, SourceType};
+use crate::AppState;
 
 // ── Config format ────────────────────────────────────────────────────────────
 
@@ -148,14 +148,19 @@ pub async fn import_config(
         .unwrap_or_else(|| path.to_string());
 
     let json = std::fs::read_to_string(&path_str).map_err(|e| e.to_string())?;
-    let export: ConfigExport = serde_json::from_str(&json)
-        .map_err(|e| format!("Geçersiz yapılandırma dosyası: {}", e))?;
+    let export: ConfigExport =
+        serde_json::from_str(&json).map_err(|e| format!("Geçersiz yapılandırma dosyası: {}", e))?;
 
     if export.version != "1" {
-        return Err(format!("Desteklenmeyen yapılandırma sürümü: {}", export.version));
+        return Err(format!(
+            "Desteklenmeyen yapılandırma sürümü: {}",
+            export.version
+        ));
     }
 
-    apply_import(&state.db, export).await.map_err(|e| e.to_string())
+    apply_import(&state.db, export)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Serialize, specta::Type)]
@@ -165,10 +170,7 @@ pub struct ImportResult {
     pub settings_applied: usize,
 }
 
-async fn apply_import(
-    db: &Arc<SqlitePool>,
-    export: ConfigExport,
-) -> anyhow::Result<ImportResult> {
+async fn apply_import(db: &Arc<SqlitePool>, export: ConfigExport) -> anyhow::Result<ImportResult> {
     let mut sources_imported = 0usize;
     let mut destinations_imported = 0usize;
 

@@ -1,7 +1,10 @@
-pub mod source;
-pub mod schedule;
 pub mod log_entry;
+pub mod schedule;
+pub mod source;
 
-pub use source::{Source, Destination, SourceType, JobStatus, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig};
-pub use schedule::{Schedule, RetentionPolicy, VersionNaming};
 pub use log_entry::LogEntry;
+pub use schedule::{RetentionPolicy, Schedule, VersionNaming};
+pub use source::{
+    Destination, DestinationType, JobStatus, OAuthConfig, S3Config, SftpConfig, Source, SourceType,
+    WebDavConfig,
+};

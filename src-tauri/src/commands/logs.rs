@@ -107,7 +107,7 @@ fn csv_escape(raw: &str) -> String {
 
 fn logs_to_csv(logs: &[LogEntry]) -> String {
     let mut out = String::from(
-        "id,source_id,destination_id,source_path,destination_path,status,trigger,started_at,ended_at,bytes_copied,files_copied,error_message,checksum\n",
+        "id,source_id,destination_id,source_path,destination_path,status,trigger,started_at,ended_at,bytes_copied,files_copied,error_message,checksum,backup_level,snapshot_id\n",
     );
 
     for log in logs {
@@ -116,9 +116,11 @@ fn logs_to_csv(logs: &[LogEntry]) -> String {
         let files = log.files_copied.map(|v| v.to_string()).unwrap_or_default();
         let error = log.error_message.clone().unwrap_or_default();
         let checksum = log.checksum.clone().unwrap_or_default();
+        let backup_level = log.backup_level.clone().unwrap_or_default();
+        let snapshot_id = log.snapshot_id.clone().unwrap_or_default();
 
         out.push_str(&format!(
-            "{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
             log.id,
             csv_escape(&log.source_id),
             csv_escape(&log.destination_id),
@@ -132,6 +134,8 @@ fn logs_to_csv(logs: &[LogEntry]) -> String {
             files,
             csv_escape(&error),
             csv_escape(&checksum),
+            csv_escape(&backup_level),
+            csv_escape(&snapshot_id),
         ));
     }
 

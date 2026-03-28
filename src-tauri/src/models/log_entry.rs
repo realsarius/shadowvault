@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct LogEntry {
@@ -17,4 +17,8 @@ pub struct LogEntry {
     pub trigger: String,
     /// SHA-256 hash (file) or "N files verified" (directory) after integrity check
     pub checksum: Option<String>,
+    /// Block backup level when available (Level0, Level1Cumulative, Level1Differential)
+    pub backup_level: Option<String>,
+    /// Block snapshot UUID when available
+    pub snapshot_id: Option<String>,
 }

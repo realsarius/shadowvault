@@ -1,7 +1,7 @@
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 use zeroize::Zeroize;
 
@@ -284,11 +284,7 @@ pub fn rename_entry(meta: &mut VaultMeta, entry_id: &str, new_name: &str) -> Res
 }
 
 /// Entry'yi başka bir klasöre taşır.
-pub fn move_entry(
-    meta: &mut VaultMeta,
-    entry_id: &str,
-    new_parent_id: Option<&str>,
-) -> Result<()> {
+pub fn move_entry(meta: &mut VaultMeta, entry_id: &str, new_parent_id: Option<&str>) -> Result<()> {
     let entry = meta
         .entries
         .iter_mut()
@@ -299,11 +295,7 @@ pub fn move_entry(
 }
 
 /// Entry'yi ve varsa alt entry'lerini (klasör ise) siler.
-pub fn delete_entry(
-    vault_path: &Path,
-    meta: &mut VaultMeta,
-    entry_id: &str,
-) -> Result<()> {
+pub fn delete_entry(vault_path: &Path, meta: &mut VaultMeta, entry_id: &str) -> Result<()> {
     // Özyinelemeli olarak tüm altındakileri topla
     let to_delete = collect_subtree(meta, entry_id);
 
@@ -360,16 +352,15 @@ pub fn generate_thumbnail(
     master_key: &[u8; KEY_LEN],
     algorithm: &str,
 ) -> Result<String> {
+    use base64::{engine::general_purpose, Engine as _};
     use image::imageops::FilterType;
-    use base64::{Engine as _, engine::general_purpose};
 
     let ciphertext = std::fs::read(vault_path.join(&entry.id))?;
     let mut file_key = derive_subkey(master_key, entry.id.as_bytes());
     let mut plaintext = decrypt_data(algorithm, &file_key, &ciphertext)?;
     file_key.zeroize();
 
-    let img = image::load_from_memory(&plaintext)
-        .map_err(|e| anyhow!("Not an image: {e}"))?;
+    let img = image::load_from_memory(&plaintext).map_err(|e| anyhow!("Not an image: {e}"))?;
     plaintext.zeroize();
 
     let thumb = img.resize(200, 200, FilterType::Triangle);
