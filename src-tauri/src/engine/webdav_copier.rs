@@ -1,16 +1,17 @@
-use std::sync::Arc;
 use chrono::Utc;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use tauri::Emitter;
 
-use crate::models::{Source, Destination, SourceType, WebDavConfig, LogEntry};
 use crate::db::queries;
+use crate::engine::retry;
+use crate::models::{Destination, LogEntry, Source, SourceType, WebDavConfig};
 
 pub struct WebDavCopyJob {
-    pub source:      Source,
+    pub source: Source,
     pub destination: Destination,
-    pub trigger:     String,
-    pub app:         Option<tauri::AppHandle>,
+    pub trigger: String,
+    pub app: Option<tauri::AppHandle>,
 }
 
 fn build_operator(config: &WebDavConfig) -> anyhow::Result<opendal::Operator> {
@@ -32,17 +33,23 @@ fn build_operator(config: &WebDavConfig) -> anyhow::Result<opendal::Operator> {
 impl WebDavCopyJob {
     fn emit_progress(&self, files_done: i32, files_total: i32, bytes_done: i64) {
         if let Some(app) = &self.app {
-            let _ = app.emit("copy-progress", serde_json::json!({
-                "destination_id": &self.destination.id,
-                "files_done": files_done,
-                "files_total": files_total,
-                "bytes_done": bytes_done,
-            }));
+            let _ = app.emit(
+                "copy-progress",
+                serde_json::json!({
+                    "destination_id": &self.destination.id,
+                    "files_done": files_done,
+                    "files_total": files_total,
+                    "bytes_done": bytes_done,
+                }),
+            );
         }
     }
 
     pub async fn execute(&self, db: Arc<SqlitePool>) -> anyhow::Result<LogEntry> {
-        let config = self.destination.webdav_config.as_ref()
+        let config = self
+            .destination
+            .webdav_config
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("WebDAV config eksik"))?
             .clone();
 
@@ -57,33 +64,42 @@ impl WebDavCopyJob {
             started_at,
             "Running",
             &self.trigger,
-        ).await?;
+            None,
+            None,
+        )
+        .await?;
 
         let version_key = format!(
             "{}_{}",
             self.source.name,
             started_at.format("%Y-%m-%dT%H-%M-%SZ")
         );
-        let display_path = format!("webdav://{}/{}",
-            config.url.trim_start_matches("https://").trim_start_matches("http://"),
+        let display_path = format!(
+            "webdav://{}/{}",
+            config
+                .url
+                .trim_start_matches("https://")
+                .trim_start_matches("http://"),
             version_key,
         );
 
         // Incremental cutoff
-        let since: Option<std::time::SystemTime> =
-            if self.destination.incremental {
-                self.destination.last_run.map(|dt| {
-                    std::time::UNIX_EPOCH +
-                        std::time::Duration::from_secs(dt.timestamp() as u64)
-                })
-            } else { None };
+        let since: Option<std::time::SystemTime> = if self.destination.incremental {
+            self.destination.last_run.map(|dt| {
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(dt.timestamp() as u64)
+            })
+        } else {
+            None
+        };
 
         let file_entries = self.collect_files(since).await?;
         let total_files = file_entries.len() as i32;
         self.emit_progress(0, total_files, 0);
 
         let op = build_operator(&config)?;
-        let upload_result = self.do_upload(&op, &version_key, &file_entries).await;
+        let upload_result = self
+            .do_upload_with_retry(&op, &version_key, &file_entries)
+            .await;
 
         let ended_at = Utc::now();
 
@@ -91,53 +107,93 @@ impl WebDavCopyJob {
             Ok((bytes_copied, files_copied)) => {
                 let checksum = Some(format!("{} dosya WebDAV'a yüklendi", files_copied));
                 queries::update_log_entry_completed(
-                    &db, log_id, ended_at, "Success",
-                    Some(bytes_copied), Some(files_copied),
-                    None, checksum.as_deref(),
-                ).await?;
+                    &db,
+                    log_id,
+                    ended_at,
+                    "Success",
+                    Some(bytes_copied),
+                    Some(files_copied),
+                    None,
+                    checksum.as_deref(),
+                    None,
+                    None,
+                )
+                .await?;
 
-                let next_run = crate::engine::copier::compute_next_run_pub(&self.destination.schedule, ended_at);
+                let next_run = crate::engine::copier::compute_next_run_pub(
+                    &self.destination.schedule,
+                    ended_at,
+                );
                 queries::update_destination_run_status(
-                    &db, &self.destination.id, ended_at, "Success", next_run,
-                ).await?;
+                    &db,
+                    &self.destination.id,
+                    ended_at,
+                    "Success",
+                    next_run,
+                )
+                .await?;
 
                 {
                     let email_db = db.clone();
                     let name = self.source.name.clone();
                     tokio::spawn(async move {
                         crate::notifications::send_backup_email(
-                            &email_db, &name, Some(files_copied), Some(bytes_copied), None,
-                        ).await;
+                            &email_db,
+                            &name,
+                            Some(files_copied),
+                            Some(bytes_copied),
+                            None,
+                        )
+                        .await;
                     });
                 }
 
                 Ok(LogEntry {
-                    id:               log_id,
-                    source_id:        self.source.id.clone(),
-                    destination_id:   self.destination.id.clone(),
-                    source_path:      self.source.path.clone(),
+                    id: log_id,
+                    source_id: self.source.id.clone(),
+                    destination_id: self.destination.id.clone(),
+                    source_path: self.source.path.clone(),
                     destination_path: display_path,
                     started_at,
-                    ended_at:         Some(ended_at),
-                    status:           "Success".to_string(),
-                    bytes_copied:     Some(bytes_copied),
-                    files_copied:     Some(files_copied),
-                    error_message:    None,
-                    trigger:          self.trigger.clone(),
+                    ended_at: Some(ended_at),
+                    status: "Success".to_string(),
+                    bytes_copied: Some(bytes_copied),
+                    files_copied: Some(files_copied),
+                    error_message: None,
+                    trigger: self.trigger.clone(),
                     checksum,
+                    backup_level: None,
+                    snapshot_id: None,
                 })
             }
             Err(e) => {
                 let error_msg = e.to_string();
                 queries::update_log_entry_completed(
-                    &db, log_id, ended_at, "Failed",
-                    None, None, Some(&error_msg), None,
-                ).await?;
+                    &db,
+                    log_id,
+                    ended_at,
+                    "Failed",
+                    None,
+                    None,
+                    Some(&error_msg),
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
 
-                let next_run = crate::engine::copier::compute_next_run_pub(&self.destination.schedule, ended_at);
+                let next_run = crate::engine::copier::compute_next_run_pub(
+                    &self.destination.schedule,
+                    ended_at,
+                );
                 queries::update_destination_run_status(
-                    &db, &self.destination.id, ended_at, "Failed", next_run,
-                ).await?;
+                    &db,
+                    &self.destination.id,
+                    ended_at,
+                    "Failed",
+                    next_run,
+                )
+                .await?;
 
                 {
                     let email_db = db.clone();
@@ -145,8 +201,13 @@ impl WebDavCopyJob {
                     let err_clone = error_msg.clone();
                     tokio::spawn(async move {
                         crate::notifications::send_backup_email(
-                            &email_db, &name, None, None, Some(&err_clone),
-                        ).await;
+                            &email_db,
+                            &name,
+                            None,
+                            None,
+                            Some(&err_clone),
+                        )
+                        .await;
                     });
                 }
 
@@ -157,13 +218,13 @@ impl WebDavCopyJob {
 
     async fn do_upload(
         &self,
-        op:           &opendal::Operator,
-        version_key:  &str,
+        op: &opendal::Operator,
+        version_key: &str,
         file_entries: &[(std::path::PathBuf, String)],
     ) -> anyhow::Result<(i64, i32)> {
         let mut total_bytes: i64 = 0;
-        let mut files_done:  i32 = 0;
-        let mut bytes_done:  i64 = 0;
+        let mut files_done: i32 = 0;
+        let mut bytes_done: i64 = 0;
         let files_total = file_entries.len() as i32;
 
         for (local_path, rel_key) in file_entries {
@@ -171,16 +232,50 @@ impl WebDavCopyJob {
             let data = std::fs::read(local_path)?;
             let len = data.len() as i64;
 
-            op.write(&remote_path, data).await
+            op.write(&remote_path, data)
+                .await
                 .map_err(|e| anyhow::anyhow!("WebDAV yükleme hatası {}: {}", remote_path, e))?;
 
             total_bytes += len;
-            files_done  += 1;
-            bytes_done  += len;
+            files_done += 1;
+            bytes_done += len;
             self.emit_progress(files_done, files_total, bytes_done);
         }
 
         Ok((total_bytes, files_done))
+    }
+
+    async fn do_upload_with_retry(
+        &self,
+        op: &opendal::Operator,
+        version_key: &str,
+        file_entries: &[(std::path::PathBuf, String)],
+    ) -> anyhow::Result<(i64, i32)> {
+        let mut attempt = 1u32;
+        loop {
+            match self.do_upload(op, version_key, file_entries).await {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if attempt >= retry::REMOTE_MAX_ATTEMPTS
+                        || !retry::is_transient_error_message(&msg)
+                    {
+                        return Err(e);
+                    }
+
+                    let delay = retry::backoff_delay(attempt);
+                    log::warn!(
+                        "WebDAV upload transient failure (attempt {}/{}), retrying in {:?}: {}",
+                        attempt,
+                        retry::REMOTE_MAX_ATTEMPTS,
+                        delay,
+                        msg
+                    );
+                    tokio::time::sleep(delay).await;
+                    attempt += 1;
+                }
+            }
+        }
     }
 
     async fn collect_files(
@@ -202,17 +297,22 @@ impl WebDavCopyJob {
             SourceType::Directory => {
                 for entry in walkdir::WalkDir::new(source_path) {
                     let entry = entry?;
-                    if !entry.file_type().is_file() { continue; }
+                    if !entry.file_type().is_file() {
+                        continue;
+                    }
 
                     if let Some(since_time) = since {
                         if let Ok(meta) = entry.metadata() {
                             if let Ok(modified) = meta.modified() {
-                                if modified <= since_time { continue; }
+                                if modified <= since_time {
+                                    continue;
+                                }
                             }
                         }
                     }
 
-                    let rel = entry.path()
+                    let rel = entry
+                        .path()
                         .strip_prefix(source_path)
                         .unwrap_or(entry.path())
                         .to_string_lossy()
@@ -229,7 +329,8 @@ impl WebDavCopyJob {
 /// Test WebDAV connection by stat'ing the root.
 pub async fn test_connection(config: &WebDavConfig) -> anyhow::Result<()> {
     let op = build_operator(config)?;
-    op.stat("/").await
+    op.stat("/")
+        .await
         .map_err(|e| anyhow::anyhow!("WebDAV bağlantı testi başarısız: {}", e))?;
     Ok(())
 }

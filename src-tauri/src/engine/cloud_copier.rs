@@ -1,13 +1,14 @@
-use std::sync::Arc;
-use chrono::Utc;
-use sqlx::SqlitePool;
 use bytes::Bytes;
-use object_store::{ObjectStore, path::Path as OsPath};
+use chrono::Utc;
 use object_store::aws::AmazonS3Builder;
+use object_store::{path::Path as OsPath, ObjectStore};
+use sqlx::SqlitePool;
+use std::sync::Arc;
 use tauri::Emitter;
 
-use crate::models::{Source, Destination, DestinationType, S3Config, SourceType, LogEntry};
 use crate::db::queries;
+use crate::engine::retry;
+use crate::models::{Destination, DestinationType, LogEntry, S3Config, Source, SourceType};
 
 pub struct CloudCopyJob {
     pub source: Source,
@@ -35,17 +36,23 @@ impl CloudCopyJob {
 
     fn emit_progress(&self, files_done: i32, files_total: i32, bytes_done: i64) {
         if let Some(app) = &self.app {
-            let _ = app.emit("copy-progress", serde_json::json!({
-                "destination_id": &self.destination.id,
-                "files_done": files_done,
-                "files_total": files_total,
-                "bytes_done": bytes_done,
-            }));
+            let _ = app.emit(
+                "copy-progress",
+                serde_json::json!({
+                    "destination_id": &self.destination.id,
+                    "files_done": files_done,
+                    "files_total": files_total,
+                    "bytes_done": bytes_done,
+                }),
+            );
         }
     }
 
     pub async fn execute(&self, db: Arc<SqlitePool>) -> anyhow::Result<LogEntry> {
-        let config = self.destination.cloud_config.as_ref()
+        let config = self
+            .destination
+            .cloud_config
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Cloud config eksik"))?;
 
         let started_at = Utc::now();
@@ -59,45 +66,80 @@ impl CloudCopyJob {
             started_at,
             "Running",
             &self.trigger,
-        ).await?;
+            None,
+            None,
+        )
+        .await?;
 
         // Version prefix: e.g. "mybackup/2025-03-15T14-30-00Z/"
         let version_key = format!(
             "{}{}_{}",
-            if config.prefix.is_empty() { String::new() } else { format!("{}/", config.prefix) },
+            if config.prefix.is_empty() {
+                String::new()
+            } else {
+                format!("{}/", config.prefix)
+            },
             self.source.name,
             started_at.format("%Y-%m-%dT%H-%M-%SZ")
         );
 
         let display_path = format!("s3://{}/{}", config.bucket, version_key);
 
-        let copy_result = self.do_upload(config, &version_key).await;
+        let copy_result = self.do_upload_with_retry(config, &version_key).await;
 
         let ended_at = Utc::now();
 
         match copy_result {
             Ok((bytes_copied, files_copied)) => {
-                let checksum = Some(format!("{} dosya buluta yüklendi ({})", files_copied,
-                    if self.destination.destination_type == DestinationType::R2 { "R2" } else { "S3" }));
+                let checksum = Some(format!(
+                    "{} dosya buluta yüklendi ({})",
+                    files_copied,
+                    if self.destination.destination_type == DestinationType::R2 {
+                        "R2"
+                    } else {
+                        "S3"
+                    }
+                ));
 
                 queries::update_log_entry_completed(
-                    &db, log_id, ended_at, "Success",
-                    Some(bytes_copied), Some(files_copied),
-                    None, checksum.as_deref(),
-                ).await?;
+                    &db,
+                    log_id,
+                    ended_at,
+                    "Success",
+                    Some(bytes_copied),
+                    Some(files_copied),
+                    None,
+                    checksum.as_deref(),
+                    None,
+                    None,
+                )
+                .await?;
 
-                let next_run = crate::engine::copier::compute_next_run_pub(&self.destination.schedule, ended_at);
+                let next_run = crate::engine::copier::compute_next_run_pub(
+                    &self.destination.schedule,
+                    ended_at,
+                );
                 queries::update_destination_run_status(
-                    &db, &self.destination.id, ended_at, "Success", next_run,
-                ).await?;
+                    &db,
+                    &self.destination.id,
+                    ended_at,
+                    "Success",
+                    next_run,
+                )
+                .await?;
 
                 {
                     let email_db = db.clone();
                     let name = self.source.name.clone();
                     tokio::spawn(async move {
                         crate::notifications::send_backup_email(
-                            &email_db, &name, Some(files_copied), Some(bytes_copied), None,
-                        ).await;
+                            &email_db,
+                            &name,
+                            Some(files_copied),
+                            Some(bytes_copied),
+                            None,
+                        )
+                        .await;
                     });
                 }
 
@@ -115,19 +157,38 @@ impl CloudCopyJob {
                     error_message: None,
                     trigger: self.trigger.clone(),
                     checksum,
+                    backup_level: None,
+                    snapshot_id: None,
                 })
             }
             Err(e) => {
                 let error_msg = e.to_string();
                 queries::update_log_entry_completed(
-                    &db, log_id, ended_at, "Failed",
-                    None, None, Some(&error_msg), None,
-                ).await?;
+                    &db,
+                    log_id,
+                    ended_at,
+                    "Failed",
+                    None,
+                    None,
+                    Some(&error_msg),
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
 
-                let next_run = crate::engine::copier::compute_next_run_pub(&self.destination.schedule, ended_at);
+                let next_run = crate::engine::copier::compute_next_run_pub(
+                    &self.destination.schedule,
+                    ended_at,
+                );
                 queries::update_destination_run_status(
-                    &db, &self.destination.id, ended_at, "Failed", next_run,
-                ).await?;
+                    &db,
+                    &self.destination.id,
+                    ended_at,
+                    "Failed",
+                    next_run,
+                )
+                .await?;
 
                 {
                     let email_db = db.clone();
@@ -135,8 +196,13 @@ impl CloudCopyJob {
                     let err_clone = error_msg.clone();
                     tokio::spawn(async move {
                         crate::notifications::send_backup_email(
-                            &email_db, &name, None, None, Some(&err_clone),
-                        ).await;
+                            &email_db,
+                            &name,
+                            None,
+                            None,
+                            Some(&err_clone),
+                        )
+                        .await;
                     });
                 }
 
@@ -145,24 +211,27 @@ impl CloudCopyJob {
         }
     }
 
-    async fn do_upload(&self, config: &S3Config, version_prefix: &str) -> anyhow::Result<(i64, i32)> {
+    async fn do_upload(
+        &self,
+        config: &S3Config,
+        version_prefix: &str,
+    ) -> anyhow::Result<(i64, i32)> {
         let store = Self::build_store(config)?;
         let source_path = std::path::Path::new(&self.source.path);
 
         // For incremental: get last_run cutoff
-        let since: Option<std::time::SystemTime> =
-            if self.destination.incremental {
-                self.destination.last_run.map(|dt| {
-                    std::time::UNIX_EPOCH +
-                        std::time::Duration::from_secs(dt.timestamp() as u64)
-                })
-            } else {
-                None
-            };
+        let since: Option<std::time::SystemTime> = if self.destination.incremental {
+            self.destination.last_run.map(|dt| {
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(dt.timestamp() as u64)
+            })
+        } else {
+            None
+        };
 
         match &self.source.source_type {
             SourceType::File => {
-                let file_name = source_path.file_name()
+                let file_name = source_path
+                    .file_name()
                     .ok_or_else(|| anyhow::anyhow!("Dosya adı alınamadı"))?
                     .to_string_lossy();
                 let key = OsPath::from(format!("{}/{}", version_prefix, file_name));
@@ -181,9 +250,12 @@ impl CloudCopyJob {
 
                 for entry in walkdir::WalkDir::new(source_path) {
                     let entry = entry?;
-                    if !entry.file_type().is_file() { continue; }
+                    if !entry.file_type().is_file() {
+                        continue;
+                    }
 
-                    let rel_path = entry.path()
+                    let rel_path = entry
+                        .path()
                         .strip_prefix(source_path)
                         .unwrap_or(entry.path());
 
@@ -198,7 +270,11 @@ impl CloudCopyJob {
                         }
                     }
 
-                    let s3_key = format!("{}/{}", version_prefix, rel_path.to_string_lossy().replace('\\', "/"));
+                    let s3_key = format!(
+                        "{}/{}",
+                        version_prefix,
+                        rel_path.to_string_lossy().replace('\\', "/")
+                    );
                     file_entries.push((entry.path().to_path_buf(), s3_key));
                 }
 
@@ -221,6 +297,38 @@ impl CloudCopyJob {
                 }
 
                 Ok((total_bytes, files_done))
+            }
+        }
+    }
+
+    async fn do_upload_with_retry(
+        &self,
+        config: &S3Config,
+        version_prefix: &str,
+    ) -> anyhow::Result<(i64, i32)> {
+        let mut attempt = 1u32;
+        loop {
+            match self.do_upload(config, version_prefix).await {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if attempt >= retry::REMOTE_MAX_ATTEMPTS
+                        || !retry::is_transient_error_message(&msg)
+                    {
+                        return Err(e);
+                    }
+
+                    let delay = retry::backoff_delay(attempt);
+                    log::warn!(
+                        "Cloud upload transient failure (attempt {}/{}), retrying in {:?}: {}",
+                        attempt,
+                        retry::REMOTE_MAX_ATTEMPTS,
+                        delay,
+                        msg
+                    );
+                    tokio::time::sleep(delay).await;
+                    attempt += 1;
+                }
             }
         }
     }
@@ -249,7 +357,9 @@ pub async fn test_connection(config: &S3Config) -> anyhow::Result<()> {
         Some(OsPath::from(config.prefix.as_str()))
     };
 
-    let _result = store.list_with_delimiter(prefix.as_ref()).await
+    let _result = store
+        .list_with_delimiter(prefix.as_ref())
+        .await
         .map_err(|e| anyhow::anyhow!("Bağlantı hatası: {}", e))?;
 
     Ok(())

@@ -1,12 +1,13 @@
-use std::sync::Arc;
-use std::io::Write;
-use std::path::Path;
 use chrono::Utc;
 use sqlx::SqlitePool;
+use std::io::Write;
+use std::path::Path;
+use std::sync::Arc;
 use tauri::Emitter;
 
-use crate::models::{Source, Destination, SftpConfig, SourceType, LogEntry};
 use crate::db::queries;
+use crate::engine::retry;
+use crate::models::{Destination, LogEntry, SftpConfig, Source, SourceType};
 
 pub struct SftpCopyJob {
     pub source: Source,
@@ -28,19 +29,21 @@ fn connect_sftp(config: &SftpConfig) -> anyhow::Result<(ssh2::Session, ssh2::Sft
 
     match config.auth_type.as_str() {
         "key" => {
-            let key_path = config.private_key.as_deref()
+            let key_path = config
+                .private_key
+                .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("Özel anahtar yolu belirtilmemiş"))?;
-            session.userauth_pubkey_file(
-                &config.username,
-                None,
-                Path::new(key_path),
-                None,
-            ).map_err(|e| anyhow::anyhow!("SSH anahtar doğrulama hatası: {}", e))?;
+            session
+                .userauth_pubkey_file(&config.username, None, Path::new(key_path), None)
+                .map_err(|e| anyhow::anyhow!("SSH anahtar doğrulama hatası: {}", e))?;
         }
         _ => {
-            let password = config.password.as_deref()
+            let password = config
+                .password
+                .as_deref()
                 .ok_or_else(|| anyhow::anyhow!("Şifre belirtilmemiş"))?;
-            session.userauth_password(&config.username, password)
+            session
+                .userauth_password(&config.username, password)
                 .map_err(|e| anyhow::anyhow!("SSH şifre doğrulama hatası: {}", e))?;
         }
     }
@@ -78,7 +81,11 @@ fn do_sftp_upload(
     dest_id: String,
 ) -> anyhow::Result<(i64, i32)> {
     let (_session, sftp) = connect_sftp(config)?;
-    let base_remote = format!("{}/{}", config.remote_path.trim_end_matches('/'), version_prefix);
+    let base_remote = format!(
+        "{}/{}",
+        config.remote_path.trim_end_matches('/'),
+        version_prefix
+    );
     ensure_remote_dir(&sftp, &base_remote)?;
 
     let files_total = file_entries.len() as i32;
@@ -100,7 +107,8 @@ fn do_sftp_upload(
         let data = std::fs::read(local_path)?;
         let len = data.len() as i64;
 
-        let mut remote_file = sftp.create(Path::new(&remote_full))
+        let mut remote_file = sftp
+            .create(Path::new(&remote_full))
             .map_err(|e| anyhow::anyhow!("Uzak dosya oluşturulamadı {}: {}", remote_full, e))?;
         remote_file.write_all(&data)?;
 
@@ -109,12 +117,15 @@ fn do_sftp_upload(
         bytes_done += len;
 
         if let Some(ref app) = app {
-            let _ = app.emit("copy-progress", serde_json::json!({
-                "destination_id": dest_id,
-                "files_done": files_done,
-                "files_total": files_total,
-                "bytes_done": bytes_done,
-            }));
+            let _ = app.emit(
+                "copy-progress",
+                serde_json::json!({
+                    "destination_id": dest_id,
+                    "files_done": files_done,
+                    "files_total": files_total,
+                    "bytes_done": bytes_done,
+                }),
+            );
         }
     }
 
@@ -126,17 +137,23 @@ fn do_sftp_upload(
 impl SftpCopyJob {
     fn emit_progress(&self, files_done: i32, files_total: i32, bytes_done: i64) {
         if let Some(app) = &self.app {
-            let _ = app.emit("copy-progress", serde_json::json!({
-                "destination_id": &self.destination.id,
-                "files_done": files_done,
-                "files_total": files_total,
-                "bytes_done": bytes_done,
-            }));
+            let _ = app.emit(
+                "copy-progress",
+                serde_json::json!({
+                    "destination_id": &self.destination.id,
+                    "files_done": files_done,
+                    "files_total": files_total,
+                    "bytes_done": bytes_done,
+                }),
+            );
         }
     }
 
     pub async fn execute(&self, db: Arc<SqlitePool>) -> anyhow::Result<LogEntry> {
-        let config = self.destination.sftp_config.as_ref()
+        let config = self
+            .destination
+            .sftp_config
+            .as_ref()
             .ok_or_else(|| anyhow::anyhow!("SFTP config eksik"))?
             .clone();
 
@@ -151,29 +168,31 @@ impl SftpCopyJob {
             started_at,
             "Running",
             &self.trigger,
-        ).await?;
+            None,
+            None,
+        )
+        .await?;
 
         let version_key = format!(
             "{}_{}",
             self.source.name,
             started_at.format("%Y-%m-%dT%H-%M-%SZ")
         );
-        let display_path = format!("sftp://{}{}{}",
+        let display_path = format!(
+            "sftp://{}{}{}",
             config.host,
             config.remote_path.trim_end_matches('/'),
             format!("/{}", version_key)
         );
 
         // For incremental: compute cutoff
-        let since: Option<std::time::SystemTime> =
-            if self.destination.incremental {
-                self.destination.last_run.map(|dt| {
-                    std::time::UNIX_EPOCH +
-                        std::time::Duration::from_secs(dt.timestamp() as u64)
-                })
-            } else {
-                None
-            };
+        let since: Option<std::time::SystemTime> = if self.destination.incremental {
+            self.destination.last_run.map(|dt| {
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(dt.timestamp() as u64)
+            })
+        } else {
+            None
+        };
 
         // Collect files to upload (async-friendly scan)
         let file_entries = self.collect_files(since).await?;
@@ -181,13 +200,9 @@ impl SftpCopyJob {
         let total_files = file_entries.len() as i32;
         self.emit_progress(0, total_files, 0);
 
-        let app_handle = self.app.clone();
-        let dest_id = self.destination.id.clone();
-        let vk = version_key.clone();
-
-        let copy_result = tokio::task::spawn_blocking(move || {
-            do_sftp_upload(&config, &vk, file_entries, app_handle, dest_id)
-        }).await?;
+        let copy_result = self
+            .do_upload_with_retry(&config, &version_key, &file_entries)
+            .await;
 
         let ended_at = Utc::now();
 
@@ -196,23 +211,44 @@ impl SftpCopyJob {
                 let checksum = Some(format!("{} dosya SFTP ile yüklendi", files_copied));
 
                 queries::update_log_entry_completed(
-                    &db, log_id, ended_at, "Success",
-                    Some(bytes_copied), Some(files_copied),
-                    None, checksum.as_deref(),
-                ).await?;
+                    &db,
+                    log_id,
+                    ended_at,
+                    "Success",
+                    Some(bytes_copied),
+                    Some(files_copied),
+                    None,
+                    checksum.as_deref(),
+                    None,
+                    None,
+                )
+                .await?;
 
-                let next_run = crate::engine::copier::compute_next_run_pub(&self.destination.schedule, ended_at);
+                let next_run = crate::engine::copier::compute_next_run_pub(
+                    &self.destination.schedule,
+                    ended_at,
+                );
                 queries::update_destination_run_status(
-                    &db, &self.destination.id, ended_at, "Success", next_run,
-                ).await?;
+                    &db,
+                    &self.destination.id,
+                    ended_at,
+                    "Success",
+                    next_run,
+                )
+                .await?;
 
                 {
                     let email_db = db.clone();
                     let name = self.source.name.clone();
                     tokio::spawn(async move {
                         crate::notifications::send_backup_email(
-                            &email_db, &name, Some(files_copied), Some(bytes_copied), None,
-                        ).await;
+                            &email_db,
+                            &name,
+                            Some(files_copied),
+                            Some(bytes_copied),
+                            None,
+                        )
+                        .await;
                     });
                 }
 
@@ -230,19 +266,38 @@ impl SftpCopyJob {
                     error_message: None,
                     trigger: self.trigger.clone(),
                     checksum,
+                    backup_level: None,
+                    snapshot_id: None,
                 })
             }
             Err(e) => {
                 let error_msg = e.to_string();
                 queries::update_log_entry_completed(
-                    &db, log_id, ended_at, "Failed",
-                    None, None, Some(&error_msg), None,
-                ).await?;
+                    &db,
+                    log_id,
+                    ended_at,
+                    "Failed",
+                    None,
+                    None,
+                    Some(&error_msg),
+                    None,
+                    None,
+                    None,
+                )
+                .await?;
 
-                let next_run = crate::engine::copier::compute_next_run_pub(&self.destination.schedule, ended_at);
+                let next_run = crate::engine::copier::compute_next_run_pub(
+                    &self.destination.schedule,
+                    ended_at,
+                );
                 queries::update_destination_run_status(
-                    &db, &self.destination.id, ended_at, "Failed", next_run,
-                ).await?;
+                    &db,
+                    &self.destination.id,
+                    ended_at,
+                    "Failed",
+                    next_run,
+                )
+                .await?;
 
                 {
                     let email_db = db.clone();
@@ -250,8 +305,13 @@ impl SftpCopyJob {
                     let err_clone = error_msg.clone();
                     tokio::spawn(async move {
                         crate::notifications::send_backup_email(
-                            &email_db, &name, None, None, Some(&err_clone),
-                        ).await;
+                            &email_db,
+                            &name,
+                            None,
+                            None,
+                            Some(&err_clone),
+                        )
+                        .await;
                     });
                 }
 
@@ -279,16 +339,21 @@ impl SftpCopyJob {
             SourceType::Directory => {
                 for entry in walkdir::WalkDir::new(source_path) {
                     let entry = entry?;
-                    if !entry.file_type().is_file() { continue; }
+                    if !entry.file_type().is_file() {
+                        continue;
+                    }
 
-                    let rel_path = entry.path()
+                    let rel_path = entry
+                        .path()
                         .strip_prefix(source_path)
                         .unwrap_or(entry.path());
 
                     if let Some(since_time) = since {
                         if let Ok(meta) = entry.metadata() {
                             if let Ok(modified) = meta.modified() {
-                                if modified <= since_time { continue; }
+                                if modified <= since_time {
+                                    continue;
+                                }
                             }
                         }
                     }
@@ -302,6 +367,51 @@ impl SftpCopyJob {
         }
 
         Ok(file_entries)
+    }
+
+    async fn do_upload_with_retry(
+        &self,
+        config: &SftpConfig,
+        version_key: &str,
+        file_entries: &[(std::path::PathBuf, String)],
+    ) -> anyhow::Result<(i64, i32)> {
+        let mut attempt = 1u32;
+        loop {
+            let config_clone = config.clone();
+            let vk = version_key.to_string();
+            let entries = file_entries.to_vec();
+            let app_handle = self.app.clone();
+            let dest_id = self.destination.id.clone();
+
+            let copy_result = tokio::task::spawn_blocking(move || {
+                do_sftp_upload(&config_clone, &vk, entries, app_handle, dest_id)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("SFTP worker failed: {}", e))?;
+
+            match copy_result {
+                Ok(v) => return Ok(v),
+                Err(e) => {
+                    let msg = e.to_string();
+                    if attempt >= retry::REMOTE_MAX_ATTEMPTS
+                        || !retry::is_transient_error_message(&msg)
+                    {
+                        return Err(e);
+                    }
+
+                    let delay = retry::backoff_delay(attempt);
+                    log::warn!(
+                        "SFTP upload transient failure (attempt {}/{}), retrying in {:?}: {}",
+                        attempt,
+                        retry::REMOTE_MAX_ATTEMPTS,
+                        delay,
+                        msg
+                    );
+                    tokio::time::sleep(delay).await;
+                    attempt += 1;
+                }
+            }
+        }
     }
 }
 
