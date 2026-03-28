@@ -35,6 +35,7 @@ const tr = {
   status_active: "Aktif",
   status_disabled: "Devre Dışı",
   status_success: "Başarılı",
+  status_verified: "Doğrulandı",
   status_failed: "Hata",
   status_running: "Çalışıyor",
   status_skipped: "Atlandı",
@@ -45,6 +46,7 @@ const tr = {
   trigger_scheduled: "Zamanlı",
   trigger_onchange: "Değişince",
   trigger_manual: "Manuel",
+  trigger_verification: "Doğrulama",
 
   // Edit source / destination
   edit_src_title: "Kaynağı Düzenle",
@@ -165,6 +167,7 @@ const tr = {
   webdav_username_ph: "kullanici",
   webdav_password: "Şifre",
   webdav_root_path: "Uzak Klasör",
+  webdav_root_path_hint: "/ShadowVault",
   webdav_fields_required: "URL ve kullanıcı adı gereklidir",
 
   // OAuth cloud destination (OneDrive / Google Drive / Dropbox)
@@ -228,7 +231,18 @@ const tr = {
   log_restore_confirm: "Bu yedek versiyonunu orijinal konuma geri yüklemek istiyor musunuz?\n\nKaynak: {src}\nYedek: {dst}",
   log_restore_success: "Geri yükleme tamamlandı.",
   log_restore_error: "Geri yükleme başarısız: {err}",
+  log_restore_blocked: "Geri yükleme hedefi sistem dizini olduğu için engellendi.",
+  log_restore_estimate: "Tahmin",
+  log_restore_dry_run_error: "Geri yükleme analizi başarısız: {err}",
   log_checksum_ok: "Doğrulandı",
+  log_verify: "Doğrula",
+  log_verify_success: "{n} dosya doğrulandı.",
+  log_verify_error: "Doğrulama başarısız: {err}",
+  err_action_retry: "Yeniden dene.",
+  err_action_retry_path: "Hedef yolu değiştirip yeniden dene.",
+  err_action_select_snapshot: "Farklı bir snapshot seç.",
+  err_action_check_password: "Şifreyi kontrol et.",
+  err_action_check_chain: "Zincir bütünlüğünü kontrol et.",
   log_files_short: "dosya",
   log_search_ph: "Yol veya hata içinde ara...",
   log_date_all: "Tüm Zamanlar",
@@ -383,6 +397,12 @@ const tr = {
   set_config_exported: "Yapılandırma dışa aktarıldı.",
   set_config_imported_ok: "İçe aktarıldı: {s} kaynak, {d} hedef.",
   set_config_err: "İşlem başarısız.",
+  set_diag_section: "Beta Teşhis",
+  set_diag_export: "Teşhis Dışa Aktar",
+  set_diag_export_desc: "Uygulama sürümü, ayarlar özeti ve son loglarla tanılama paketi üret.",
+  set_diag_exporting: "Dışa aktarılıyor...",
+  set_diag_exported: "Teşhis dosyası üretildi: {path}",
+  set_diag_export_err: "Teşhis dışa aktarma başarısız: {err}",
 
   // Email notifications
   set_notif_section: "E-posta Bildirimleri",
@@ -545,6 +565,7 @@ const en: Record<keyof typeof tr, string> = {
   status_active: "Active",
   status_disabled: "Disabled",
   status_success: "Success",
+  status_verified: "Verified",
   status_failed: "Error",
   status_running: "Running",
   status_skipped: "Skipped",
@@ -555,6 +576,7 @@ const en: Record<keyof typeof tr, string> = {
   trigger_scheduled: "Scheduled",
   trigger_onchange: "On Change",
   trigger_manual: "Manual",
+  trigger_verification: "Verification",
 
   // Schedule picker
   schedule_interval: "Every X minutes",
@@ -658,6 +680,7 @@ const en: Record<keyof typeof tr, string> = {
   webdav_username_ph: "username",
   webdav_password: "Password",
   webdav_root_path: "Remote Folder",
+  webdav_root_path_hint: "/ShadowVault",
   webdav_fields_required: "URL and username are required",
 
   // OAuth cloud destination (OneDrive / Google Drive / Dropbox)
@@ -719,7 +742,18 @@ const en: Record<keyof typeof tr, string> = {
   log_restore_confirm: "Restore this backup version to its original location?\n\nSource: {src}\nBackup: {dst}",
   log_restore_success: "Restore completed.",
   log_restore_error: "Restore failed: {err}",
+  log_restore_blocked: "Restore target is blocked because it points to a system directory.",
+  log_restore_estimate: "Estimate",
+  log_restore_dry_run_error: "Restore dry run failed: {err}",
   log_checksum_ok: "Verified",
+  log_verify: "Verify",
+  log_verify_success: "{n} file(s) verified.",
+  log_verify_error: "Verification failed: {err}",
+  err_action_retry: "Retry the operation.",
+  err_action_retry_path: "Choose a different restore path and retry.",
+  err_action_select_snapshot: "Select a different snapshot.",
+  err_action_check_password: "Check the password.",
+  err_action_check_chain: "Check backup chain integrity.",
   log_files_short: "files",
   log_search_ph: "Search path or error...",
   log_date_all: "All Time",
@@ -874,6 +908,12 @@ const en: Record<keyof typeof tr, string> = {
   set_config_exported: "Configuration exported.",
   set_config_imported_ok: "Imported: {s} sources, {d} destinations.",
   set_config_err: "Operation failed.",
+  set_diag_section: "Beta Diagnostics",
+  set_diag_export: "Export Diagnostics",
+  set_diag_export_desc: "Create a diagnostics bundle with app version, settings summary, and recent logs.",
+  set_diag_exporting: "Exporting...",
+  set_diag_exported: "Diagnostics exported: {path}",
+  set_diag_export_err: "Diagnostics export failed: {err}",
 
   // Email notifications
   set_notif_section: "Email Notifications",

@@ -5,6 +5,7 @@ import { Badge } from "../ui/Badge";
 import { api } from "../../api/tauri";
 import { t, ti } from "../../i18n";
 import type { JobStatus, LogEntry, Source } from "../../store/types";
+import { parseCommandError, type RestoreErrorCode } from "../../utils/commandError";
 import styles from "./LogPanel.module.css";
 
 interface Props {
@@ -43,6 +44,7 @@ function formatBytes(bytes: number | null): string {
 
 function statusToVariant(status: JobStatus): "success" | "error" | "warning" | "running" | "neutral" {
   if (status === "Success") return "success";
+  if (status === "Verified") return "success";
   if (status === "Failed") return "error";
   if (status === "Running") return "running";
   if (status === "Skipped") return "warning";
@@ -52,6 +54,7 @@ function statusToVariant(status: JobStatus): "success" | "error" | "warning" | "
 function statusLabel(status: JobStatus): string {
   const map: Record<string, string> = {
     Success: t("status_success"),
+    Verified: t("status_verified"),
     Failed: t("status_failed"),
     Running: t("status_running"),
     Skipped: t("status_skipped"),
@@ -65,18 +68,78 @@ function triggerLabel(trigger: string): string {
     Scheduled: t("trigger_scheduled"),
     OnChange: t("trigger_onchange"),
     Manual: t("trigger_manual"),
+    Verification: t("trigger_verification"),
   };
   return map[trigger] ?? trigger;
 }
 
+function actionHintByCode(code: RestoreErrorCode | null): string {
+  if (code === "wrong_password") return t("err_action_check_password");
+  if (code === "missing_snapshot") return t("err_action_select_snapshot");
+  if (code === "chain_incomplete") return t("err_action_check_chain");
+  if (code === "blocked_path") return t("err_action_retry_path");
+  if (code === "io_failure") return t("err_action_retry");
+  return "";
+}
+
 async function handleRestore(log: LogEntry) {
-  const msg = ti("log_restore_confirm", { src: log.source_path, dst: log.destination_path });
+  let dryRunSummary = "";
+  let dryRun: Awaited<ReturnType<typeof api.restore.dryRun>> | Awaited<ReturnType<typeof api.restore.blockDryRun>> | null = null;
+  try {
+    dryRun = log.snapshot_id
+      ? await api.restore.blockDryRun(log.destination_path, log.snapshot_id, log.source_path)
+      : await api.restore.dryRun(log.destination_path, log.source_path);
+
+    dryRunSummary = `\n\n${t("log_restore_estimate")}: ${dryRun.files_to_restore} ${t("log_files_short")}, ${formatBytes(dryRun.bytes_to_restore)}`;
+  } catch (e: any) {
+    const parsed = parseCommandError(e);
+    const hint = actionHintByCode(parsed.error_code);
+    toast.error(
+      ti("log_restore_dry_run_error", {
+        err: hint ? `${parsed.message} - ${hint}` : parsed.message,
+      }),
+    );
+    return;
+  }
+
+  if (!dryRun) return;
+  if (dryRun.error_code === "blocked_path" || dryRun.blocked) {
+    toast.error(`${t("log_restore_blocked")} ${t("err_action_retry_path")}`);
+    return;
+  }
+
+  const msg = `${ti("log_restore_confirm", { src: log.source_path, dst: log.destination_path })}${dryRunSummary}`;
   if (!confirm(msg)) return;
   try {
-    await api.restore.backup(log.destination_path, log.source_path);
+    if (log.snapshot_id) {
+      await api.restore.blockBackup(log.destination_path, log.snapshot_id, log.source_path, null);
+    } else {
+      await api.restore.backup(log.destination_path, log.source_path);
+    }
     toast.success(t("log_restore_success"));
   } catch (e: any) {
-    toast.error(ti("log_restore_error", { err: e?.message ?? String(e) }));
+    const parsed = parseCommandError(e);
+    const hint = actionHintByCode(parsed.error_code);
+    toast.error(
+      ti("log_restore_error", {
+        err: hint ? `${parsed.message} - ${hint}` : parsed.message,
+      }),
+    );
+  }
+}
+
+async function handleVerify(log: LogEntry) {
+  try {
+    const result = await api.restore.verify(log.destination_id, log.snapshot_id, null);
+    toast.success(ti("log_verify_success", { n: result.files_checked }));
+  } catch (e: any) {
+    const parsed = parseCommandError(e);
+    const hint = actionHintByCode(parsed.error_code);
+    toast.error(
+      ti("log_verify_error", {
+        err: hint ? `${parsed.message} - ${hint}` : parsed.message,
+      }),
+    );
   }
 }
 
@@ -117,6 +180,9 @@ export function LogPanel(props: Props) {
                 {(log) => {
                   const isExpanded = () => expandedId() === log.id;
                   const isExpandable = () => !!(log.error_message || log.checksum);
+                  const canRestore = () =>
+                    (log.status === "Success" || log.status === "Verified") &&
+                    (!!log.snapshot_id || !log.destination_path.includes("://"));
                   return (
                     <>
                       <tr
@@ -147,9 +213,14 @@ export function LogPanel(props: Props) {
                         </td>
                         <td class={styles.td} onClick={(e) => e.stopPropagation()}>
                           <div class={styles.actions}>
-                            <Show when={log.status === "Success"}>
+                            <Show when={canRestore()}>
                               <button class={styles.actionBtn} onClick={() => handleRestore(log)} title={t("log_restore")}>
                                 <TbOutlineRestore size={14} />
+                              </button>
+                            </Show>
+                            <Show when={!!log.snapshot_id}>
+                              <button class={styles.actionBtn} onClick={() => handleVerify(log)} title={t("log_verify")}>
+                                <TbOutlineShieldCheck size={14} />
                               </button>
                             </Show>
                             <button class={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => props.onDelete(log)} title={t("log_delete_one")}>

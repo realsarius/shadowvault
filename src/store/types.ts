@@ -86,8 +86,8 @@ export interface Source {
   destinations: Destination[];
 }
 
-export type JobStatus = "Running" | "Success" | "Failed" | "Skipped" | "Cancelled";
-export type TriggerType = "Scheduled" | "OnChange" | "Manual";
+export type JobStatus = "Running" | "Success" | "Verified" | "Failed" | "Skipped" | "Cancelled";
+export type TriggerType = "Scheduled" | "OnChange" | "Manual" | "Verification";
 
 export interface LogEntry {
   id: number;
@@ -137,6 +137,41 @@ export interface BackupPreview {
   dest_path: string;
   incremental: boolean;
 }
+
+export interface RestoreDryRunResult {
+  mode: string;
+  backup_path: string;
+  restore_to: string;
+  files_to_restore: number;
+  bytes_to_restore: number;
+  blocked: boolean;
+  notes: string[];
+  snapshot_id: string | null;
+  backup_level: string | null;
+  error_code: RestoreErrorCode | null;
+}
+
+export interface VerifyBackupResult {
+  destination_id: string;
+  source_id: string;
+  snapshot_id: string;
+  source_name: string;
+  backup_level: string;
+  chain_depth: number;
+  files_checked: number;
+  blocks_checked: number;
+  total_bytes: number;
+  snapshot_digest: string;
+  verified_at: string;
+  error_code: RestoreErrorCode | null;
+}
+
+export type RestoreErrorCode =
+  | "blocked_path"
+  | "missing_snapshot"
+  | "wrong_password"
+  | "chain_incomplete"
+  | "io_failure";
 
 export interface CopyProgress {
   destination_id: string;

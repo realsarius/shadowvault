@@ -15,6 +15,7 @@ export function Settings() {
   const [clearingLogs, setClearingLogs] = createSignal(false);
   const [exporting, setExporting] = createSignal(false);
   const [importing, setImporting] = createSignal(false);
+  const [exportingDiagnostics, setExportingDiagnostics] = createSignal(false);
   const [notifEmail, setNotifEmail] = createSignal("");
   const [savingEmail, setSavingEmail] = createSignal(false);
   const [testingEmail, setTestingEmail] = createSignal(false);
@@ -132,6 +133,18 @@ export function Settings() {
     finally { setClearingLogs(false); }
   };
 
+  const handleExportDiagnostics = async () => {
+    setExportingDiagnostics(true);
+    try {
+      const path = await api.diagnostics.export();
+      toast.success(ti("set_diag_exported", { path }));
+    } catch (e: any) {
+      toast.error(ti("set_diag_export_err", { err: e?.message ?? String(e) }));
+    } finally {
+      setExportingDiagnostics(false);
+    }
+  };
+
   return (
     <div class={styles.root}>
       <div class={styles.pageHeader}>
@@ -229,6 +242,24 @@ export function Settings() {
           </div>
           <Button variant="ghost" size="sm" onClick={handleImport} disabled={importing()}>
             {importing() ? t("set_config_importing") : t("set_config_import")}
+          </Button>
+        </div>
+      </div>
+
+      <div class={styles.section}>
+        <div class={styles.sectionTitle}>{t("set_diag_section")}</div>
+        <div class={styles.rowLast}>
+          <div class={styles.rowInfo}>
+            <div class={styles.rowLabel}>{t("set_diag_export")}</div>
+            <div class={styles.rowDesc}>{t("set_diag_export_desc")}</div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleExportDiagnostics}
+            disabled={exportingDiagnostics()}
+          >
+            {exportingDiagnostics() ? t("set_diag_exporting") : t("set_diag_export")}
           </Button>
         </div>
       </div>

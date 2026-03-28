@@ -46,9 +46,9 @@ async deleteDestination(id: string) : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async runNow(destinationId: string) : Promise<Result<null, string>> {
+async runNow(destinationId: string, backupLevel: string | null) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("run_now", { destinationId }) };
+    return { status: "ok", data: await TAURI_INVOKE("run_now", { destinationId, backupLevel }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -78,17 +78,17 @@ async resumeAll() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-async getLogs(sourceId: string | null, destinationId: string | null, status: string | null, limit: number | null, offset: number | null) : Promise<Result<LogEntry[], string>> {
+async getLogs(sourceId: string | null, destinationId: string | null, status: string | null, startedAfter: string | null, startedBefore: string | null, searchText: string | null, limit: number | null, offset: number | null) : Promise<Result<LogEntry[], string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_logs", { sourceId, destinationId, status, limit, offset }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_logs", { sourceId, destinationId, status, startedAfter, startedBefore, searchText, limit, offset }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
-async getLogCount(sourceId: string | null) : Promise<Result<number, string>> {
+async getLogCount(sourceId: string | null, destinationId: string | null, status: string | null, startedAfter: string | null, startedBefore: string | null, searchText: string | null) : Promise<Result<number, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("get_log_count", { sourceId }) };
+    return { status: "ok", data: await TAURI_INVOKE("get_log_count", { sourceId, destinationId, status, startedAfter, startedBefore, searchText }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -97,6 +97,30 @@ async getLogCount(sourceId: string | null) : Promise<Result<number, string>> {
 async clearOldLogs(olderThanDays: number) : Promise<Result<number, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("clear_old_logs", { olderThanDays }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async deleteLogEntry(logId: number) : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_log_entry", { logId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearLogs(sourceId: string | null, destinationId: string | null, status: string | null, startedAfter: string | null, startedBefore: string | null, searchText: string | null) : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_logs", { sourceId, destinationId, status, startedAfter, startedBefore, searchText }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async exportLogs(sourceId: string | null, destinationId: string | null, status: string | null, startedAfter: string | null, startedBefore: string | null, searchText: string | null, format: string) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_logs", { sourceId, destinationId, status, startedAfter, startedBefore, searchText, format }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -288,15 +312,49 @@ async deactivateLicense() : Promise<Result<null, string>> {
     else return { status: "error", error: e  as any };
 }
 },
-/**
- * Restores a versioned backup to its original (or specified) location.
- * 
- * `backup_path`  — path to the versioned backup directory/file (from copy_logs.destination_path)
- * `restore_to`   — target path to restore into (typically the original source_path)
- */
 async restoreBackup(backupPath: string, restoreTo: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("restore_backup", { backupPath, restoreTo }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreDryRun(backupPath: string, restoreTo: string) : Promise<Result<RestoreDryRunResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_dry_run", { backupPath, restoreTo }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Restores a block-level snapshot to the specified location.
+ * 
+ * `destination_path` — path to the destination (contains `.shadowvault/` directory)
+ * `snapshot_id`      — UUID of the snapshot to restore
+ * `restore_to`       — target path to restore into
+ * `password`         — optional plaintext password for encrypted backups
+ */
+async restoreBlockBackup(destinationPath: string, snapshotId: string, restoreTo: string, password: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_block_backup", { destinationPath, snapshotId, restoreTo, password }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restoreBlockDryRun(destinationPath: string, snapshotId: string, restoreTo: string) : Promise<Result<RestoreDryRunResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restore_block_dry_run", { destinationPath, snapshotId, restoreTo }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async verifyBackup(destinationId: string | null, snapshotId: string | null, password: string | null) : Promise<Result<VerifyBackupResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("verify_backup", { destinationId, snapshotId, password }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -374,9 +432,9 @@ async testWebdavConnection(url: string, username: string, password: string, root
  * 5. Exchanges the code for tokens
  * Returns the resulting OAuthConfig (without folder_path — set via separate field).
  */
-async runOauthFlow(provider: string, clientId: string, folderPath: string) : Promise<Result<OAuthConfig, string>> {
+async runOauthFlow(provider: string, folderPath: string) : Promise<Result<OAuthConfig, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("run_oauth_flow", { provider, clientId, folderPath }) };
+    return { status: "ok", data: await TAURI_INVOKE("run_oauth_flow", { provider, folderPath }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -559,6 +617,14 @@ async decryptBackup(folderPath: string, password: string) : Promise<Result<numbe
     else return { status: "error", error: e  as any };
 }
 },
+async exportDiagnostics() : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_diagnostics") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Called from frontend after a language change so the menu reflects the new locale.
  */
@@ -595,6 +661,26 @@ exclusions?: string[];
  */
 incremental?: boolean; destination_type?: DestinationType; cloud_config?: S3Config | null; sftp_config?: SftpConfig | null; oauth_config?: OAuthConfig | null; webdav_config?: WebDavConfig | null; 
 /**
+ * Whether Level 1 (incremental) backups are enabled
+ */
+level1_enabled?: boolean; 
+/**
+ * Separate schedule for Level 1 backups (if enabled)
+ */
+level1_schedule?: Schedule | null; 
+/**
+ * Level 1 backup type: "Cumulative" or "Differential"
+ */
+level1_type?: string; 
+/**
+ * Last time a Level 1 backup ran
+ */
+level1_last_run?: string | null; 
+/**
+ * Next scheduled Level 1 backup
+ */
+level1_next_run?: string | null; 
+/**
  * Whether files at the destination should be AES-256-GCM encrypted
  */
 encrypt?: boolean }
@@ -602,13 +688,21 @@ export type DestinationType = "Local" | "S3" | "R2" | "Sftp" | "OneDrive" | "Goo
 export type DiskInfo = { total_bytes: number; available_bytes: number; path: string }
 export type EntryKind = "File" | "Directory"
 export type ImportResult = { sources_imported: number; destinations_imported: number; settings_applied: number }
-export type JobStatus = "Running" | "Success" | "Failed" | "Skipped" | "Cancelled"
+export type JobStatus = "Running" | "Success" | "Verified" | "Failed" | "Skipped" | "Cancelled"
 export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 export type LogEntry = { id: number; source_id: string; destination_id: string; source_path: string; destination_path: string; started_at: string; ended_at: string | null; status: string; bytes_copied: number | null; files_copied: number | null; error_message: string | null; trigger: string; 
 /**
  * SHA-256 hash (file) or "N files verified" (directory) after integrity check
  */
-checksum: string | null }
+checksum: string | null; 
+/**
+ * Block backup level when available (Level0, Level1Cumulative, Level1Differential)
+ */
+backup_level: string | null; 
+/**
+ * Block snapshot UUID when available
+ */
+snapshot_id: string | null }
 export type OAuthConfig = { provider: string; client_id: string; access_token: string; refresh_token: string; expires_at: number; folder_path: string }
 /**
  * Frontend için serialize edilebilir özet.
@@ -619,6 +713,8 @@ export type PreviewFile = { rel_path: string; size_bytes: number;
  * `false` when incremental mode would skip this file (unchanged since last run)
  */
 will_copy: boolean }
+export type RestoreDryRunResult = { mode: string; backup_path: string; restore_to: string; files_to_restore: number; bytes_to_restore: number; blocked: boolean; notes: string[]; snapshot_id: string | null; backup_level: string | null; error_code: RestoreErrorCode | null }
+export type RestoreErrorCode = "blocked_path" | "missing_snapshot" | "wrong_password" | "chain_incomplete" | "io_failure"
 export type RetentionPolicy = { max_versions: number; naming: VersionNaming }
 export type S3Config = { provider: string; bucket: string; region: string; access_key_id: string; secret_access_key: string; endpoint_url: string | null; prefix: string }
 export type Schedule = { type: "Interval"; value: { minutes: number } } | { type: "Cron"; value: { expression: string } } | { type: "OnChange" } | { type: "Manual" }
@@ -637,6 +733,7 @@ size: number | null; modified: string | null;
  */
 nonce: string | null }
 export type VaultSummary = { id: string; name: string; algorithm: string; vault_path: string; created_at: string; last_opened: string | null; unlocked: boolean }
+export type VerifyBackupResult = { destination_id: string; source_id: string; snapshot_id: string; source_name: string; backup_level: string; chain_depth: number; files_checked: number; blocks_checked: number; total_bytes: number; snapshot_digest: string; verified_at: string; error_code: RestoreErrorCode | null }
 export type VersionNaming = "Timestamp" | "Index" | "Overwrite"
 export type WebDavConfig = { url: string; username: string; password: string; root_path: string }
 

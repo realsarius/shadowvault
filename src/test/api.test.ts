@@ -29,7 +29,7 @@ describe("api layer", () => {
   it("api.jobs.runNow passes destinationId", async () => {
     vi.mocked(invoke).mockResolvedValueOnce(null);
     await api.jobs.runNow("dest-123");
-    expect(invoke).toHaveBeenCalledWith("run_now", { destinationId: "dest-123" });
+    expect(invoke).toHaveBeenCalledWith("run_now", { destinationId: "dest-123", backupLevel: null });
   });
 
   it("api.logs.clearOld passes olderThanDays", async () => {
@@ -73,5 +73,31 @@ describe("api layer", () => {
     const info = await api.updater.check();
     expect(invoke).toHaveBeenCalledWith("check_update");
     expect(info.available).toBe(false);
+  });
+
+  it("api.restore.dryRun calls restore_dry_run", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ files_to_restore: 12, bytes_to_restore: 1024 });
+    await api.restore.dryRun("/tmp/backup", "/tmp/restore");
+    expect(invoke).toHaveBeenCalledWith("restore_dry_run", {
+      backupPath: "/tmp/backup",
+      restoreTo: "/tmp/restore",
+    });
+  });
+
+  it("api.restore.verify calls verify_backup", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce({ snapshot_id: "snap-1" });
+    await api.restore.verify("dest-1", "snap-1", null);
+    expect(invoke).toHaveBeenCalledWith("verify_backup", {
+      destinationId: "dest-1",
+      snapshotId: "snap-1",
+      password: null,
+    });
+  });
+
+  it("api.diagnostics.export calls export_diagnostics", async () => {
+    vi.mocked(invoke).mockResolvedValueOnce("/tmp/diag.json");
+    const path = await api.diagnostics.export();
+    expect(invoke).toHaveBeenCalledWith("export_diagnostics");
+    expect(path).toBe("/tmp/diag.json");
   });
 });

@@ -1,5 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Destination, LogEntry, AppSettings, ScheduleType, RetentionPolicy, BackupPreview, DestinationType, S3Config, SftpConfig, OAuthConfig, WebDavConfig, VaultSummary, VaultEntry } from "../store/types";
+import type {
+  Source,
+  Destination,
+  LogEntry,
+  AppSettings,
+  ScheduleType,
+  RetentionPolicy,
+  BackupPreview,
+  DestinationType,
+  S3Config,
+  SftpConfig,
+  OAuthConfig,
+  WebDavConfig,
+  VaultSummary,
+  VaultEntry,
+  RestoreDryRunResult,
+  VerifyBackupResult,
+} from "../store/types";
 
 export interface LogQueryFilters {
   sourceId?: string;
@@ -49,6 +66,18 @@ export const api = {
   restore: {
     backup: (backupPath: string, restoreTo: string) =>
       invoke<void>("restore_backup", { backupPath, restoreTo }),
+    blockBackup: (destinationPath: string, snapshotId: string, restoreTo: string, password?: string | null) =>
+      invoke<void>("restore_block_backup", { destinationPath, snapshotId, restoreTo, password: password ?? null }),
+    dryRun: (backupPath: string, restoreTo: string) =>
+      invoke<RestoreDryRunResult>("restore_dry_run", { backupPath, restoreTo }),
+    blockDryRun: (destinationPath: string, snapshotId: string, restoreTo: string) =>
+      invoke<RestoreDryRunResult>("restore_block_dry_run", { destinationPath, snapshotId, restoreTo }),
+    verify: (destinationId?: string | null, snapshotId?: string | null, password?: string | null) =>
+      invoke<VerifyBackupResult>("verify_backup", {
+        destinationId: destinationId ?? null,
+        snapshotId: snapshotId ?? null,
+        password: password ?? null,
+      }),
   },
   jobs: {
     runNow: (destinationId: string, backupLevel?: string) => invoke<void>("run_now", { destinationId, backupLevel: backupLevel ?? null }),
@@ -58,15 +87,15 @@ export const api = {
   },
   logs: {
     get: (filters?: LogQueryFilters) =>
-      invoke<LogEntry[]>("get_logs", filters ?? {}),
+      invoke<LogEntry[]>("get_logs", (filters ?? {}) as Record<string, unknown>),
     count: (filters?: Omit<LogQueryFilters, "limit" | "offset">) =>
-      invoke<number>("get_log_count", filters ?? {}),
+      invoke<number>("get_log_count", (filters ?? {}) as Record<string, unknown>),
     clearOld: (days: number) => invoke<number>("clear_old_logs", { olderThanDays: days }),
     deleteEntry: (logId: number) => invoke<number>("delete_log_entry", { logId }),
     clear: (filters?: Omit<LogQueryFilters, "limit" | "offset">) =>
-      invoke<number>("clear_logs", filters ?? {}),
+      invoke<number>("clear_logs", (filters ?? {}) as Record<string, unknown>),
     export: (format: LogExportFormat, filters?: Omit<LogQueryFilters, "limit" | "offset">) =>
-      invoke<string>("export_logs", { format, ...(filters ?? {}) }),
+      invoke<string>("export_logs", { format, ...((filters ?? {}) as Record<string, unknown>) }),
   },
   fs: {
     pickDirectory: () => invoke<string | null>("pick_directory"),
@@ -103,6 +132,9 @@ export const api = {
   },
   notifications: {
     sendTest: (to: string) => invoke<void>("send_test_email", { to }),
+  },
+  diagnostics: {
+    export: () => invoke<string>("export_diagnostics"),
   },
   menu: {
     rebuild: (lang: string) => invoke<void>("rebuild_app_menu", { lang }),
