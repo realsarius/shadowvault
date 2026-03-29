@@ -1,4 +1,4 @@
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, onMount, Show, For } from "solid-js";
 import { getVersion } from "@tauri-apps/api/app";
 import { emit } from "@tauri-apps/api/event";
 import { toast } from "solid-sonner";
@@ -8,6 +8,7 @@ import { Toggle } from "../components/ui/Toggle";
 import { Button } from "../components/ui/Button";
 import { t, ti } from "../i18n";
 import type { AppSettings } from "../store/types";
+import { TIMEZONE_OPTIONS } from "../utils/dateFormat";
 import styles from "./Settings.module.css";
 
 export function Settings() {
@@ -28,6 +29,7 @@ export function Settings() {
   const [theme, setTheme] = createSignal<"dark" | "light" | "system">("dark");
   const [logRetentionDays, setLogRetentionDays] = createSignal(30);
   const [language, setLanguage] = createSignal<"tr" | "en">("tr");
+  const [timezone, setTimezone] = createSignal("auto");
 
   onMount(async () => {
     await loadSettings();
@@ -38,6 +40,7 @@ export function Settings() {
       setTheme(s.theme);
       setLogRetentionDays(s.log_retention_days);
       setLanguage(s.language);
+      setTimezone(s.timezone ?? "auto");
     }
     const savedEmail = await api.settings.getValue("notification_email").catch(() => null);
     if (savedEmail) setNotifEmail(savedEmail);
@@ -70,6 +73,7 @@ export function Settings() {
     const settings: AppSettings = {
       run_on_startup: runOnStartup(), minimize_to_tray: minimizeToTray(),
       theme: theme(), log_retention_days: logRetentionDays(), language: language(),
+      timezone: timezone(),
     };
     try {
       await api.settings.update(settings);
@@ -88,12 +92,20 @@ export function Settings() {
       setUpdateInfo(info);
       if (!info.available) toast.info(t("set_update_none"));
     } catch (e: any) {
-      const msg: string = e?.message ?? "";
-      // Endpoint 404 veya ağ hatası → kritik hata değil
-      if (msg.includes("status code") || msg.includes("network") || msg.includes("Failed to fetch")) {
+      // Tauri updater farklı tiplerde hata fırlatabilir (string | Error | {message})
+      const raw: string = typeof e === "string" ? e : (e?.message ?? String(e ?? ""));
+      const isEndpointIssue =
+        raw.includes("status code") ||
+        raw.includes("404") ||
+        raw.includes("Not Found") ||
+        raw.includes("network") ||
+        raw.includes("Failed to fetch") ||
+        raw.includes("endpoint") ||
+        raw.includes("connect");
+      if (isEndpointIssue) {
         toast.info(t("set_update_none"));
       } else {
-        toast.error(msg || t("set_update_err"));
+        toast.error(raw || t("set_update_err"));
       }
     } finally { setCheckingUpdate(false); }
   };
@@ -191,7 +203,7 @@ export function Settings() {
             <option value="system">{t("set_theme_system")}</option>
           </select>
         </div>
-        <div class={styles.rowLast}>
+        <div class={styles.row}>
           <div class={styles.rowInfo}>
             <div class={styles.rowLabel}>{t("set_language")}</div>
             <div class={styles.rowDesc}>{t("set_language_desc")}</div>
@@ -199,6 +211,17 @@ export function Settings() {
           <select class={styles.select} value={language()} onChange={(e) => setLanguage(e.currentTarget.value as any)}>
             <option value="tr">Türkçe</option>
             <option value="en">English</option>
+          </select>
+        </div>
+        <div class={styles.rowLast}>
+          <div class={styles.rowInfo}>
+            <div class={styles.rowLabel}>{t("set_timezone")}</div>
+            <div class={styles.rowDesc}>{t("set_timezone_desc")}</div>
+          </div>
+          <select class={styles.select} value={timezone()} onChange={(e) => setTimezone(e.currentTarget.value)}>
+            <For each={TIMEZONE_OPTIONS}>{(opt) =>
+              <option value={opt.value}>{opt.label}</option>
+            }</For>
           </select>
         </div>
       </div>

@@ -649,7 +649,7 @@ async rebuildAppMenu(lang: string) : Promise<Result<null, string>> {
 /** user-defined types **/
 
 export type ActivateResult = { success: boolean; error: string | null }
-export type AppSettings = { run_on_startup: boolean; minimize_to_tray: boolean; theme: string; log_retention_days: number; language: string }
+export type AppSettings = { run_on_startup: boolean; minimize_to_tray: boolean; theme: string; log_retention_days: number; language: string; timezone: string }
 export type BackupPreview = { files: PreviewFile[]; copy_count: number; copy_bytes: number; skip_count: number; total_count: number; source_name: string; dest_path: string; incremental: boolean }
 export type Destination = { id: string; source_id: string; path: string; schedule: Schedule; retention: RetentionPolicy; enabled: boolean; last_run: string | null; last_status: JobStatus | null; next_run: string | null; 
 /**

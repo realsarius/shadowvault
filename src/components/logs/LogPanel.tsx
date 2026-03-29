@@ -6,23 +6,13 @@ import { api } from "../../api/tauri";
 import { t, ti } from "../../i18n";
 import type { JobStatus, LogEntry, Source } from "../../store/types";
 import { parseCommandError, type RestoreErrorCode } from "../../utils/commandError";
+import { formatDateTime } from "../../utils/dateFormat";
 import styles from "./LogPanel.module.css";
 
 interface Props {
   logs: LogEntry[];
   sources: Source[];
   onDelete: (log: LogEntry) => Promise<void>;
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
 }
 
 function formatDuration(started: string, ended: string | null): string {
@@ -202,7 +192,7 @@ export function LogPanel(props: Props) {
                         <td class={styles.td}><span class={styles.sourceName}>{sourceMap()[log.source_id] ?? log.source_path}</span></td>
                         <td class={`${styles.td} ${styles.tdPath}`}>{log.destination_path}</td>
                         <td class={styles.td}>{triggerLabel(log.trigger)}</td>
-                        <td class={styles.td}>{formatDate(log.started_at)}</td>
+                        <td class={styles.td}>{formatDateTime(log.started_at, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}</td>
                         <td class={styles.td}>{formatDuration(log.started_at, log.ended_at)}</td>
                         <td class={styles.td}>
                           {formatBytes(log.bytes_copied)}

@@ -1,4 +1,4 @@
-import { TbOutlineSun, TbOutlineMoon } from "solid-icons/tb";
+import { TbOutlineSun, TbOutlineMoon, TbOutlinePlayerPause, TbOutlinePlayerPlay } from "solid-icons/tb";
 import { store, loadSettings } from "../../store";
 import { api } from "../../api/tauri";
 import { Button } from "../ui/Button";
@@ -46,7 +46,9 @@ export function TopBar() {
           size="sm"
           onClick={() => store.isSchedulerPaused ? api.jobs.resumeAll() : api.jobs.pauseAll()}
         >
-          {store.isSchedulerPaused ? t("topbar_resume") : t("topbar_pause")}
+          {store.isSchedulerPaused
+            ? <><TbOutlinePlayerPlay size={14} />{" "}{t("topbar_resume")}</>
+            : <><TbOutlinePlayerPause size={14} />{" "}{t("topbar_pause")}</>}
         </Button>
       </div>
     </header>

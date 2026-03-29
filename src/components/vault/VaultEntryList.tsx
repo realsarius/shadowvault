@@ -4,6 +4,7 @@ import type { VaultEntry } from "../../store/types";
 import { FileIcon } from "./FileIcon";
 import { api } from "../../api/tauri";
 import { toast } from "solid-sonner";
+import { formatDateOnly } from "../../utils/dateFormat";
 import styles from "./VaultEntryList.module.css";
 
 interface Props {
@@ -28,10 +29,6 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-}
 
 export function VaultEntryList(props: Props) {
   let ghost: HTMLDivElement | null = null;
@@ -236,7 +233,7 @@ export function VaultEntryList(props: Props) {
               <span class={styles.colSize}>
                 {entry.kind === "File" ? formatSize(entry.size) : "—"}
               </span>
-              <span class={styles.colDate}>{formatDate(entry.modified)}</span>
+              <span class={styles.colDate}>{formatDateOnly(entry.modified)}</span>
             </div>
           )}
         </For>

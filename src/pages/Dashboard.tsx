@@ -6,6 +6,7 @@ import { Badge } from "../components/ui/Badge";
 import { Button } from "../components/ui/Button";
 import { t } from "../i18n";
 import type { JobStatus } from "../store/types";
+import { formatDateTime } from "../utils/dateFormat";
 import styles from "./Dashboard.module.css";
 
 function formatBytes(bytes: number | null): string {
@@ -27,10 +28,6 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(hours / 24)} gün önce`;
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString("tr-TR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 
 function isToday(iso: string): boolean {
   const d = new Date(iso), now = new Date();
@@ -138,7 +135,7 @@ export function Dashboard() {
                     </div>
                     <div class={styles.metaItem}>
                       <div class={styles.metaItemLabel}>{t("dash_next_run")}</div>
-                      <div class={styles.metaItemVal}>{formatDate(lastDest?.next_run ?? null)}</div>
+                      <div class={styles.metaItemVal}>{formatDateTime(lastDest?.next_run ?? null)}</div>
                     </div>
                     <div class={styles.destCount}>
                       {source.destinations.length} {t("dash_targets")}

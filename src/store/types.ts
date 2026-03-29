@@ -113,6 +113,7 @@ export interface AppSettings {
   theme: "dark" | "light" | "system";
   log_retention_days: number;
   language: "tr" | "en";
+  timezone: string;
 }
 
 export interface DiskInfo {

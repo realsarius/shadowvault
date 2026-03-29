@@ -13,6 +13,7 @@ import { t } from "../../i18n";
 import { api } from "../../api/tauri";
 import { store } from "../../store";
 import { parseCommandError } from "../../utils/commandError";
+import { formatDateTime } from "../../utils/dateFormat";
 import type { Source, Destination, JobStatus } from "../../store/types";
 import styles from "./DestinationList.module.css";
 
@@ -47,10 +48,6 @@ function scheduleLabel(dest: Destination): string {
   return l0;
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString("tr-TR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-}
 
 function statusToVariant(status: JobStatus | null): "success" | "error" | "warning" | "running" | "neutral" {
   if (!status) return "neutral";
@@ -258,19 +255,19 @@ export function DestinationList(props: Props) {
                         <span class={styles.metaLabel}>{t("dest_schedule_label")} </span>{scheduleLabel(dest)}
                       </span>
                       <span class={styles.metaItem}>
-                        <span class={styles.metaLabel}>L0 {t("dest_last_run")} </span>{formatDate(dest.last_run)}
+                        <span class={styles.metaLabel}>L0 {t("dest_last_run")} </span>{formatDateTime(dest.last_run)}
                       </span>
                       <span class={styles.metaItem}>
-                        <span class={styles.metaLabel}>L0 {t("dest_next_run")} </span>{formatDate(dest.next_run)}
+                        <span class={styles.metaLabel}>L0 {t("dest_next_run")} </span>{formatDateTime(dest.next_run)}
                       </span>
                     </div>
                     <Show when={dest.level1_enabled}>
                       <div class={styles.metaRow}>
                         <span class={styles.metaItem}>
-                          <span class={styles.metaLabel}>L1 {t("dest_last_run")} </span>{formatDate(dest.level1_last_run)}
+                          <span class={styles.metaLabel}>L1 {t("dest_last_run")} </span>{formatDateTime(dest.level1_last_run)}
                         </span>
                         <span class={styles.metaItem}>
-                          <span class={styles.metaLabel}>L1 {t("dest_next_run")} </span>{formatDate(dest.level1_next_run)}
+                          <span class={styles.metaLabel}>L1 {t("dest_next_run")} </span>{formatDateTime(dest.level1_next_run)}
                         </span>
                       </div>
                     </Show>

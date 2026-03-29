@@ -45,6 +45,7 @@ pub struct AppSettings {
     pub theme: String,
     pub log_retention_days: i64,
     pub language: String,
+    pub timezone: String,
 }
 
 #[tauri::command]
@@ -75,12 +76,18 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, Str
         .map_err(|e| e.to_string())?
         .unwrap_or_else(|| "tr".to_string());
 
+    let timezone = queries::get_setting(&state.db, "timezone")
+        .await
+        .map_err(|e| e.to_string())?
+        .unwrap_or_else(|| "auto".to_string());
+
     Ok(AppSettings {
         run_on_startup: run_on_startup.trim() == "true",
         minimize_to_tray: minimize_to_tray.trim() == "true",
         theme,
         log_retention_days: log_retention_days.trim().parse::<i64>().unwrap_or(30),
         language,
+        timezone,
     })
 }
 

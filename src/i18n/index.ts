@@ -12,8 +12,8 @@ const tr = {
 
   // TopBar
   topbar_brand: "ShadowVault",
-  topbar_pause: "⏸ Duraklat",
-  topbar_resume: "▶ Devam",
+  topbar_pause: "Duraklat",
+  topbar_resume: "Devam",
 
   // Buttons / common
   btn_save: "Kaydet",
@@ -310,6 +310,8 @@ const tr = {
   set_theme_system: "Sistem",
   set_language: "Dil",
   set_language_desc: "Arayüz dilini seçin",
+  set_timezone: "Saat Dilimi",
+  set_timezone_desc: "Tarih ve saat gösteriminde kullanılacak saat dilimi",
   set_log_section: "Log Yönetimi",
   set_log_retention: "Log Saklama Süresi",
   set_log_retention_desc: "Bu süreden eski loglar silinir",
@@ -541,8 +543,8 @@ const en: Record<keyof typeof tr, string> = {
 
   // TopBar
   topbar_brand: "ShadowVault",
-  topbar_pause: "⏸ Pause",
-  topbar_resume: "▶ Resume",
+  topbar_pause: "Pause",
+  topbar_resume: "Resume",
 
   // Buttons / common
   btn_save: "Save",
@@ -829,6 +831,8 @@ const en: Record<keyof typeof tr, string> = {
   set_theme_system: "System",
   set_language: "Language",
   set_language_desc: "Select interface language",
+  set_timezone: "Timezone",
+  set_timezone_desc: "Timezone used for displaying dates and times",
   set_log_section: "Log Management",
   set_log_retention: "Log Retention Period",
   set_log_retention_desc: "Logs older than this will be deleted",
