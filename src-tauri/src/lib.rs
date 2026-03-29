@@ -6,7 +6,7 @@ use std::time::Instant;
 use tauri::Emitter;
 use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 use vault::session::SessionStore;
 
 pub mod commands;
@@ -28,8 +28,10 @@ pub struct AppState {
     pub scheduler: Arc<Mutex<Scheduler>>,
     pub watcher: Arc<Mutex<FileWatcher>>,
     pub running_jobs: Arc<DashMap<String, tokio::task::AbortHandle>>,
+    pub inflight_jobs: Arc<DashMap<String, Instant>>,
     pub verifying_jobs: Arc<DashMap<String, Instant>>,
     pub paused: Arc<AtomicBool>,
+    pub pause_signal: watch::Sender<bool>,
     pub minimize_to_tray: Arc<AtomicBool>,
     pub last_manual_run: Arc<DashMap<String, Instant>>,
 }
@@ -221,7 +223,9 @@ pub fn run() {
 
                 let running_jobs: Arc<DashMap<String, tokio::task::AbortHandle>> =
                     Arc::new(DashMap::new());
+                let inflight_jobs: Arc<DashMap<String, Instant>> = Arc::new(DashMap::new());
                 let paused = Arc::new(AtomicBool::new(false));
+                let (pause_signal, pause_rx) = watch::channel(false);
                 let scheduler = Arc::new(Mutex::new(Scheduler::new()));
                 let watcher = Arc::new(Mutex::new(FileWatcher::new()));
 
@@ -236,16 +240,24 @@ pub fn run() {
                         .reload_all(
                             pool.clone(),
                             running_jobs.clone(),
+                            inflight_jobs.clone(),
                             app_handle.clone(),
                             paused.clone(),
+                            pause_rx.clone(),
                         )
                         .await;
                 }
 
                 {
                     let mut w = watcher.lock().await;
-                    w.start(pool.clone(), running_jobs.clone(), app_handle.clone())
-                        .await;
+                    w.start(
+                        pool.clone(),
+                        running_jobs.clone(),
+                        inflight_jobs.clone(),
+                        app_handle.clone(),
+                        paused.clone(),
+                    )
+                    .await;
                 }
 
                 let last_manual_run: Arc<DashMap<String, Instant>> = Arc::new(DashMap::new());
@@ -255,8 +267,10 @@ pub fn run() {
                     scheduler,
                     watcher,
                     running_jobs,
+                    inflight_jobs,
                     verifying_jobs,
                     paused,
+                    pause_signal,
                     minimize_to_tray,
                     last_manual_run,
                 });
@@ -412,7 +426,13 @@ fn sync_open_vault_files(app: &tauri::AppHandle) {
     };
 
     let (all_files, keys): (Vec<_>, std::collections::HashMap<String, [u8; 32]>) = {
-        let guard = sess.0.lock().unwrap();
+        let guard = match sess.0.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                log::error!("Vault session lock is poisoned during auto-sync");
+                return;
+            }
+        };
         let files = guard.get_all_open_files();
         let keys = files
             .iter()
@@ -441,7 +461,13 @@ fn sync_open_vault_files(app: &tauri::AppHandle) {
 
     // Session'ı temizle
     if !all_files.is_empty() {
-        let mut guard = sess.0.lock().unwrap();
+        let mut guard = match sess.0.lock() {
+            Ok(g) => g,
+            Err(_) => {
+                log::error!("Vault session lock is poisoned while unregistering open files");
+                return;
+            }
+        };
         for (tmp_path, _) in &all_files {
             guard.unregister_open_file(tmp_path);
         }

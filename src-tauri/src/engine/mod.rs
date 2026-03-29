@@ -1,6 +1,7 @@
 pub mod block;
 pub mod cloud_copier;
 pub mod copier;
+pub mod job_control;
 pub mod oauth_copier;
 pub mod oauth_token;
 pub mod retry;

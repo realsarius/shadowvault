@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -12,6 +13,7 @@ use tokio::task::AbortHandle;
 
 use crate::db::queries;
 use crate::engine::copier::CopyJob;
+use crate::engine::job_control;
 use crate::models::{Destination, Source};
 
 pub struct FileWatcher {
@@ -33,11 +35,14 @@ impl FileWatcher {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn start(
         &mut self,
         db: Arc<SqlitePool>,
         running_jobs: Arc<DashMap<String, AbortHandle>>,
+        inflight_jobs: Arc<DashMap<String, Instant>>,
         app_handle: AppHandle,
+        paused: Arc<AtomicBool>,
     ) {
         self.stop();
 
@@ -54,7 +59,6 @@ impl FileWatcher {
             return;
         }
 
-        // Build path -> Vec<(source, dest)> map
         let mut path_map: HashMap<String, Vec<(Source, Destination)>> = HashMap::new();
         for (source, dest) in pairs {
             path_map
@@ -101,6 +105,10 @@ impl FileWatcher {
             let debounce = Duration::from_millis(500);
 
             while let Some(event) = rx.recv().await {
+                if paused.load(Ordering::SeqCst) {
+                    continue;
+                }
+
                 let is_relevant = matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_));
                 if !is_relevant {
                     continue;
@@ -126,7 +134,7 @@ impl FileWatcher {
                             continue;
                         }
 
-                        if running_jobs.contains_key(&dest.id) {
+                        if !job_control::try_claim_destination(&inflight_jobs, &dest.id) {
                             log::info!(
                                 "Destination {} already running, skipping OnChange trigger",
                                 dest.id
@@ -155,6 +163,7 @@ impl FileWatcher {
                         let source_clone = source.clone();
                         let dest_clone = dest.clone();
                         let running_jobs_clone = running_jobs.clone();
+                        let inflight_jobs_clone = inflight_jobs.clone();
                         let app_handle_clone = app_handle.clone();
                         let dest_id = dest.id.clone();
                         let dest_id_inner = dest.id.clone();
@@ -164,49 +173,51 @@ impl FileWatcher {
                         let watch_dest_id_start = dest_id_inner.clone();
                         let watch_ah_start = app_handle_clone.clone();
 
-                        let job_handle = tokio::task::spawn(async move {
-                            let _ = watch_ah_start.emit(
-                                "copy-started",
-                                serde_json::json!({
-                                    "destination_id": watch_dest_id_start,
-                                    "source_path": watch_src_path,
-                                    "destination_path": watch_dst_path,
-                                }),
-                            );
+                        job_control::spawn_tracked_job(
+                            dest_id,
+                            running_jobs_clone,
+                            inflight_jobs_clone,
+                            async move {
+                                let _ = watch_ah_start.emit(
+                                    "copy-started",
+                                    serde_json::json!({
+                                        "destination_id": watch_dest_id_start,
+                                        "source_path": watch_src_path,
+                                        "destination_path": watch_dst_path,
+                                    }),
+                                );
 
-                            let job = CopyJob {
-                                source: source_clone,
-                                destination: dest_clone,
-                                trigger: "OnChange".to_string(),
-                                app: Some(watch_ah_start.clone()),
-                                backup_level: None,
-                            };
-                            match job.execute(db_clone).await {
-                                Ok(log_entry) => {
-                                    log::info!(
-                                        "OnChange copy completed for destination {}",
-                                        dest_id_inner
-                                    );
-                                    let _ = app_handle_clone.emit("copy-completed", &log_entry);
+                                let job = CopyJob {
+                                    source: source_clone,
+                                    destination: dest_clone,
+                                    trigger: "OnChange".to_string(),
+                                    app: Some(watch_ah_start.clone()),
+                                    backup_level: None,
+                                };
+                                match job.execute(db_clone).await {
+                                    Ok(log_entry) => {
+                                        log::info!(
+                                            "OnChange copy completed for destination {}",
+                                            dest_id_inner
+                                        );
+                                        let _ = app_handle_clone.emit("copy-completed", &log_entry);
+                                    }
+                                    Err(e) => {
+                                        log::error!(
+                                            "OnChange copy failed for destination {}: {}",
+                                            dest_id_inner,
+                                            e
+                                        );
+                                        crate::tray::set_tray_state(&app_handle_clone, "error");
+                                        let payload = serde_json::json!({
+                                            "destination_id": dest_id_inner,
+                                            "error": e.to_string()
+                                        });
+                                        let _ = app_handle_clone.emit("copy-error", &payload);
+                                    }
                                 }
-                                Err(e) => {
-                                    log::error!(
-                                        "OnChange copy failed for destination {}: {}",
-                                        dest_id_inner,
-                                        e
-                                    );
-                                    crate::tray::set_tray_state(&app_handle_clone, "error");
-                                    let payload = serde_json::json!({
-                                        "destination_id": dest_id_inner,
-                                        "error": e.to_string()
-                                    });
-                                    let _ = app_handle_clone.emit("copy-error", &payload);
-                                }
-                            }
-                            running_jobs_clone.remove(&dest_id_inner);
-                        });
-
-                        running_jobs.insert(dest_id, job_handle.abort_handle());
+                            },
+                        );
                     }
                 }
             }

@@ -1,16 +1,18 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use dashmap::DashMap;
 use sqlx::SqlitePool;
 use tauri::{AppHandle, Emitter};
+use tokio::sync::watch;
 use tokio::task::AbortHandle;
 
 use crate::db::queries;
 use crate::engine::copier::CopyJob;
+use crate::engine::job_control;
 use crate::models::{Destination, Schedule, Source};
 
 pub struct Scheduler {
@@ -24,7 +26,6 @@ mod tests {
 
     #[test]
     fn test_next_cron_duration_every_minute_is_under_70s() {
-        // "0 * * * * * *" fires every minute — next fire must be ≤ 60s away
         let d = next_cron_duration("0 * * * * * *");
         assert!(d.as_secs() <= 60, "expected ≤ 60s, got {:?}", d);
         assert!(d.as_millis() > 0, "duration must be positive");
@@ -38,7 +39,6 @@ mod tests {
 
     #[test]
     fn test_next_cron_duration_hourly_is_within_one_hour() {
-        // "0 0 * * * * *" fires at the start of each hour
         let d = next_cron_duration("0 0 * * * * *");
         assert!(d.as_secs() <= 3600, "expected ≤ 3600s, got {:?}", d);
         assert!(d.as_millis() > 0, "duration must be positive");
@@ -51,8 +51,6 @@ impl Default for Scheduler {
     }
 }
 
-/// Calculates how long to sleep until the next cron fire time.
-/// Uses local timezone so expressions like "0 9 * * *" fire at 09:00 local time.
 fn next_cron_duration(expression: &str) -> Duration {
     use std::str::FromStr;
     match cron::Schedule::from_str(expression) {
@@ -74,6 +72,16 @@ fn next_cron_duration(expression: &str) -> Duration {
     }
 }
 
+async fn wait_while_paused(paused: &Arc<AtomicBool>, pause_rx: &mut watch::Receiver<bool>) -> bool {
+    while paused.load(Ordering::SeqCst) {
+        if pause_rx.changed().await.is_err() {
+            log::warn!("Pause signal channel closed while scheduler is paused");
+            return false;
+        }
+    }
+    true
+}
+
 impl Scheduler {
     pub fn new() -> Self {
         Scheduler {
@@ -82,16 +90,18 @@ impl Scheduler {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn schedule_destination(
         &mut self,
         dest: Destination,
         source: Source,
         db: Arc<SqlitePool>,
         running_jobs: Arc<DashMap<String, AbortHandle>>,
+        inflight_jobs: Arc<DashMap<String, Instant>>,
         app_handle: AppHandle,
         paused: Arc<AtomicBool>,
+        mut pause_rx: watch::Receiver<bool>,
     ) {
-        // Only Interval and Cron schedules get background tasks
         match &dest.schedule {
             Schedule::OnChange | Schedule::Manual => return,
             _ => {}
@@ -104,7 +114,6 @@ impl Scheduler {
         let last_run_clone = dest.last_run;
 
         let task = tokio::task::spawn(async move {
-            // Determine if we should run immediately or sleep first
             let should_run_immediately = match last_run_clone {
                 None => true,
                 Some(last_run) => match &schedule_clone {
@@ -145,13 +154,11 @@ impl Scheduler {
             }
 
             loop {
-                // Spin-wait while paused
-                while paused.load(Ordering::SeqCst) {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                if !wait_while_paused(&paused, &mut pause_rx).await {
+                    break;
                 }
 
-                // Skip if destination is already running
-                if running_jobs.contains_key(&dest.id) {
+                if !job_control::try_claim_destination(&inflight_jobs, &dest.id) {
                     log::info!(
                         "Destination {} is already running, skipping scheduled run",
                         dest.id
@@ -177,7 +184,6 @@ impl Scheduler {
                     let db_clone = db.clone();
                     let source_clone = source.clone();
                     let dest_clone = dest.clone();
-                    let running_jobs_clone = running_jobs.clone();
                     let app_handle_clone = app_handle.clone();
                     let dest_id_inner = dest.id.clone();
 
@@ -186,72 +192,74 @@ impl Scheduler {
                     let sched_dest_id_start = dest_id_inner.clone();
                     let sched_ah_start = app_handle_clone.clone();
 
-                    let job_handle = tokio::task::spawn(async move {
-                        let _ = sched_ah_start.emit(
-                            "copy-started",
-                            serde_json::json!({
-                                "destination_id": sched_dest_id_start,
-                                "source_path": sched_src_path,
-                                "destination_path": sched_dst_path,
-                            }),
-                        );
+                    job_control::spawn_tracked_job(
+                        dest.id.clone(),
+                        running_jobs.clone(),
+                        inflight_jobs.clone(),
+                        async move {
+                            let _ = sched_ah_start.emit(
+                                "copy-started",
+                                serde_json::json!({
+                                    "destination_id": sched_dest_id_start,
+                                    "source_path": sched_src_path,
+                                    "destination_path": sched_dst_path,
+                                }),
+                            );
 
-                        let trigger = "Scheduled".to_string();
-                        let source_name = source_clone.name.clone();
-                        let job = CopyJob {
-                            source: source_clone,
-                            destination: dest_clone,
-                            trigger: trigger.clone(),
-                            app: Some(app_handle_clone.clone()),
-                            backup_level: Some(crate::engine::block::snapshot::BackupLevel::Level0),
-                        };
+                            let trigger = "Scheduled".to_string();
+                            let source_name = source_clone.name.clone();
+                            let job = CopyJob {
+                                source: source_clone,
+                                destination: dest_clone,
+                                trigger: trigger.clone(),
+                                app: Some(app_handle_clone.clone()),
+                                backup_level: Some(
+                                    crate::engine::block::snapshot::BackupLevel::Level0,
+                                ),
+                            };
 
-                        match job.execute(db_clone).await {
-                            Ok(log_entry) => {
-                                log::info!(
-                                    "Scheduled copy completed for destination {}",
-                                    dest_id_inner
-                                );
-                                crate::notifications::notify_copy_result(
-                                    &app_handle_clone,
-                                    &source_name,
-                                    log_entry.files_copied,
-                                    log_entry.bytes_copied,
-                                    &trigger,
-                                    None,
-                                );
-                                let _ = app_handle_clone.emit("copy-completed", &log_entry);
+                            match job.execute(db_clone).await {
+                                Ok(log_entry) => {
+                                    log::info!(
+                                        "Scheduled copy completed for destination {}",
+                                        dest_id_inner
+                                    );
+                                    crate::notifications::notify_copy_result(
+                                        &app_handle_clone,
+                                        &source_name,
+                                        log_entry.files_copied,
+                                        log_entry.bytes_copied,
+                                        &trigger,
+                                        None,
+                                    );
+                                    let _ = app_handle_clone.emit("copy-completed", &log_entry);
+                                }
+                                Err(e) => {
+                                    log::error!(
+                                        "Scheduled copy failed for destination {}: {}",
+                                        dest_id_inner,
+                                        e
+                                    );
+                                    crate::notifications::notify_copy_result(
+                                        &app_handle_clone,
+                                        &source_name,
+                                        None,
+                                        None,
+                                        &trigger,
+                                        Some(&e.to_string()),
+                                    );
+                                    crate::tray::set_tray_state(&app_handle_clone, "error");
+                                    let payload = serde_json::json!({
+                                        "destination_id": dest_id_inner,
+                                        "error": e.to_string()
+                                    });
+                                    let _ = app_handle_clone.emit("copy-error", &payload);
+                                }
                             }
-                            Err(e) => {
-                                log::error!(
-                                    "Scheduled copy failed for destination {}: {}",
-                                    dest_id_inner,
-                                    e
-                                );
-                                crate::notifications::notify_copy_result(
-                                    &app_handle_clone,
-                                    &source_name,
-                                    None,
-                                    None,
-                                    &trigger,
-                                    Some(&e.to_string()),
-                                );
-                                crate::tray::set_tray_state(&app_handle_clone, "error");
-                                let payload = serde_json::json!({
-                                    "destination_id": dest_id_inner,
-                                    "error": e.to_string()
-                                });
-                                let _ = app_handle_clone.emit("copy-error", &payload);
-                            }
-                        }
-
-                        running_jobs_clone.remove(&dest_id_inner);
-                    });
-
-                    running_jobs.insert(dest.id.clone(), job_handle.abort_handle());
+                        },
+                    );
                 }
 
-                // Sleep until next scheduled run
                 let sleep_duration = match &schedule_clone {
                     Schedule::Interval { minutes } => Duration::from_secs(*minutes as u64 * 60),
                     Schedule::Cron { expression } => next_cron_duration(expression),
@@ -264,16 +272,17 @@ impl Scheduler {
         self.tasks.insert(dest_id, task.abort_handle());
     }
 
-    /// Schedules a Level 1 (incremental) backup task for a destination.
-    /// Level 1 runs on its own timer but skips if a Level 0 is currently running.
+    #[allow(clippy::too_many_arguments)]
     pub fn schedule_level1(
         &mut self,
         dest: Destination,
         source: Source,
         db: Arc<SqlitePool>,
         running_jobs: Arc<DashMap<String, AbortHandle>>,
+        inflight_jobs: Arc<DashMap<String, Instant>>,
         app_handle: AppHandle,
         paused: Arc<AtomicBool>,
+        mut pause_rx: watch::Receiver<bool>,
     ) {
         let l1_schedule = match &dest.level1_schedule {
             Some(s @ (Schedule::Interval { .. } | Schedule::Cron { .. })) => s.clone(),
@@ -286,7 +295,6 @@ impl Scheduler {
         let l1_type = dest.level1_type.clone();
 
         let task = tokio::task::spawn(async move {
-            // Initial sleep for Level 1
             let initial_sleep = match &l1_schedule {
                 Schedule::Interval { minutes } => Duration::from_secs(*minutes as u64 * 60),
                 Schedule::Cron { expression } => next_cron_duration(expression),
@@ -295,13 +303,11 @@ impl Scheduler {
             tokio::time::sleep(initial_sleep).await;
 
             loop {
-                // Spin-wait while paused
-                while paused.load(Ordering::SeqCst) {
-                    tokio::time::sleep(Duration::from_secs(5)).await;
+                if !wait_while_paused(&paused, &mut pause_rx).await {
+                    break;
                 }
 
-                // Skip if any backup (Level 0 or other) is already running for this dest
-                if running_jobs.contains_key(&dest.id) {
+                if !job_control::try_claim_destination(&inflight_jobs, &dest.id) {
                     log::info!(
                         "Level 1 skipped for {} — another backup is running",
                         dest.id
@@ -334,7 +340,6 @@ impl Scheduler {
                     let db_status = db.clone();
                     let source_clone = source.clone();
                     let dest_clone = dest.clone();
-                    let running_jobs_clone = running_jobs.clone();
                     let app_handle_clone = app_handle.clone();
                     let dest_id_inner = dest.id.clone();
                     let dest_id_status = dest.id.clone();
@@ -346,102 +351,101 @@ impl Scheduler {
                     let sched_dest_id_start = dest_id_inner.clone();
                     let sched_ah_start = app_handle_clone.clone();
 
-                    let job_handle = tokio::task::spawn(async move {
-                        let _ = sched_ah_start.emit(
-                            "copy-started",
-                            serde_json::json!({
-                                "destination_id": sched_dest_id_start,
-                                "source_path": sched_src_path,
-                                "destination_path": sched_dst_path,
-                                "level": "Level1",
-                            }),
-                        );
+                    job_control::spawn_tracked_job(
+                        dest.id.clone(),
+                        running_jobs.clone(),
+                        inflight_jobs.clone(),
+                        async move {
+                            let _ = sched_ah_start.emit(
+                                "copy-started",
+                                serde_json::json!({
+                                    "destination_id": sched_dest_id_start,
+                                    "source_path": sched_src_path,
+                                    "destination_path": sched_dst_path,
+                                    "level": "Level1",
+                                }),
+                            );
 
-                        let backup_level = match l1_type_clone.as_str() {
-                            "Differential" => {
-                                crate::engine::block::snapshot::BackupLevel::Level1Differential
+                            let backup_level = match l1_type_clone.as_str() {
+                                "Differential" => {
+                                    crate::engine::block::snapshot::BackupLevel::Level1Differential
+                                }
+                                _ => crate::engine::block::snapshot::BackupLevel::Level1Cumulative,
+                            };
+
+                            let trigger = "Scheduled".to_string();
+                            let source_name = source_clone.name.clone();
+                            let job = CopyJob {
+                                source: source_clone,
+                                destination: dest_clone,
+                                trigger: trigger.clone(),
+                                app: Some(app_handle_clone.clone()),
+                                backup_level: Some(backup_level),
+                            };
+
+                            match job.execute(db_clone).await {
+                                Ok(log_entry) => {
+                                    log::info!(
+                                        "Scheduled Level 1 backup completed for destination {}",
+                                        dest_id_inner
+                                    );
+                                    crate::notifications::notify_copy_result(
+                                        &app_handle_clone,
+                                        &source_name,
+                                        log_entry.files_copied,
+                                        log_entry.bytes_copied,
+                                        &trigger,
+                                        None,
+                                    );
+                                    let _ = app_handle_clone.emit("copy-completed", &log_entry);
+                                }
+                                Err(e) => {
+                                    log::error!(
+                                        "Scheduled Level 1 backup failed for destination {}: {}",
+                                        dest_id_inner,
+                                        e
+                                    );
+                                    crate::notifications::notify_copy_result(
+                                        &app_handle_clone,
+                                        &source_name,
+                                        None,
+                                        None,
+                                        &trigger,
+                                        Some(&e.to_string()),
+                                    );
+                                    crate::tray::set_tray_state(&app_handle_clone, "error");
+                                    let payload = serde_json::json!({
+                                        "destination_id": dest_id_inner,
+                                        "error": e.to_string()
+                                    });
+                                    let _ = app_handle_clone.emit("copy-error", &payload);
+                                }
                             }
-                            _ => crate::engine::block::snapshot::BackupLevel::Level1Cumulative,
-                        };
 
-                        let trigger = "Scheduled".to_string();
-                        let source_name = source_clone.name.clone();
-                        let job = CopyJob {
-                            source: source_clone,
-                            destination: dest_clone,
-                            trigger: trigger.clone(),
-                            app: Some(app_handle_clone.clone()),
-                            backup_level: Some(backup_level),
-                        };
-
-                        match job.execute(db_clone).await {
-                            Ok(log_entry) => {
-                                log::info!(
-                                    "Scheduled Level 1 backup completed for destination {}",
-                                    dest_id_inner
-                                );
-                                crate::notifications::notify_copy_result(
-                                    &app_handle_clone,
-                                    &source_name,
-                                    log_entry.files_copied,
-                                    log_entry.bytes_copied,
-                                    &trigger,
-                                    None,
-                                );
-                                let _ = app_handle_clone.emit("copy-completed", &log_entry);
-                            }
-                            Err(e) => {
-                                log::error!(
-                                    "Scheduled Level 1 backup failed for destination {}: {}",
-                                    dest_id_inner,
-                                    e
-                                );
-                                crate::notifications::notify_copy_result(
-                                    &app_handle_clone,
-                                    &source_name,
-                                    None,
-                                    None,
-                                    &trigger,
-                                    Some(&e.to_string()),
-                                );
-                                crate::tray::set_tray_state(&app_handle_clone, "error");
-                                let payload = serde_json::json!({
-                                    "destination_id": dest_id_inner,
-                                    "error": e.to_string()
-                                });
-                                let _ = app_handle_clone.emit("copy-error", &payload);
-                            }
-                        }
-
-                        // Update level1_last_run and level1_next_run
-                        let now = chrono::Utc::now();
-                        let l1_next = match &l1_schedule_clone {
-                            Schedule::Interval { minutes } => {
-                                Some(now + chrono::Duration::minutes(*minutes as i64))
-                            }
-                            Schedule::Cron { expression } => {
-                                use std::str::FromStr;
-                                cron::Schedule::from_str(expression)
-                                    .ok()
-                                    .and_then(|s| s.after(&now).next())
-                            }
-                            _ => None,
-                        };
-                        let _ = queries::update_destination_level1_run_status(
-                            &db_status,
-                            &dest_id_status,
-                            now,
-                            l1_next,
-                        )
-                        .await;
-
-                        running_jobs_clone.remove(&dest_id_inner);
-                    });
-
-                    running_jobs.insert(dest.id.clone(), job_handle.abort_handle());
+                            let now = chrono::Utc::now();
+                            let l1_next = match &l1_schedule_clone {
+                                Schedule::Interval { minutes } => {
+                                    Some(now + chrono::Duration::minutes(*minutes as i64))
+                                }
+                                Schedule::Cron { expression } => {
+                                    use std::str::FromStr;
+                                    cron::Schedule::from_str(expression)
+                                        .ok()
+                                        .and_then(|s| s.after(&now).next())
+                                }
+                                _ => None,
+                            };
+                            let _ = queries::update_destination_level1_run_status(
+                                &db_status,
+                                &dest_id_status,
+                                now,
+                                l1_next,
+                            )
+                            .await;
+                        },
+                    );
                 }
 
-                // Sleep until next Level 1 run
                 let sleep_duration = match &l1_schedule {
                     Schedule::Interval { minutes } => Duration::from_secs(*minutes as u64 * 60),
                     Schedule::Cron { expression } => next_cron_duration(expression),
@@ -479,12 +483,15 @@ impl Scheduler {
         (self.tasks.len(), self.level1_tasks.len())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn reload_all(
         &mut self,
         db: Arc<SqlitePool>,
         running_jobs: Arc<DashMap<String, AbortHandle>>,
+        inflight_jobs: Arc<DashMap<String, Instant>>,
         app_handle: AppHandle,
         paused: Arc<AtomicBool>,
+        pause_rx: watch::Receiver<bool>,
     ) {
         self.cancel_all();
 
@@ -499,25 +506,27 @@ impl Scheduler {
                         );
                         continue;
                     }
-                    // Schedule Level 0
                     self.schedule_destination(
                         dest.clone(),
                         source.clone(),
                         db.clone(),
                         running_jobs.clone(),
+                        inflight_jobs.clone(),
                         app_handle.clone(),
                         paused.clone(),
+                        pause_rx.clone(),
                     );
 
-                    // Schedule Level 1 if enabled
                     if dest.level1_enabled {
                         self.schedule_level1(
                             dest,
                             source,
                             db.clone(),
                             running_jobs.clone(),
+                            inflight_jobs.clone(),
                             app_handle.clone(),
                             paused.clone(),
+                            pause_rx.clone(),
                         );
                     }
                 }

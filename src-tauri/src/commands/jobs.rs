@@ -1,8 +1,10 @@
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, State};
 
+use crate::commands::error_contract::{command_error, CommandErrorCode};
 use crate::db::queries;
 use crate::engine::copier::CopyJob;
+use crate::engine::job_control;
 use crate::AppState;
 
 const RUN_NOW_COOLDOWN_SECS: u64 = 5;
@@ -15,7 +17,6 @@ pub async fn run_now(
     state: State<'_, AppState>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
-    // Rate limit: 5 second cooldown per destination
     if let Some(last) = state.last_manual_run.get(&destination_id) {
         if last.elapsed() < Duration::from_secs(RUN_NOW_COOLDOWN_SECS) {
             return Err(format!(
@@ -28,9 +29,8 @@ pub async fn run_now(
         .last_manual_run
         .insert(destination_id.clone(), Instant::now());
 
-    // Look up destination and source
     let dest_row = sqlx::query(
-        "SELECT id, source_id, path, schedule_json, retention_json, enabled, last_run, last_status, next_run FROM destinations WHERE id = ?"
+        "SELECT id, source_id, path, schedule_json, retention_json, enabled, last_run, last_status, next_run FROM destinations WHERE id = ?",
     )
     .bind(&destination_id)
     .fetch_optional(state.db.as_ref())
@@ -56,7 +56,24 @@ pub async fn run_now(
         .find(|d| d.id == destination_id)
         .ok_or_else(|| format!("Destination {} not found in source", destination_id))?;
 
-    if state.running_jobs.contains_key(&destination_id) {
+    let resolved_level = match backup_level.as_deref() {
+        Some("Level0") => Some(crate::engine::block::snapshot::BackupLevel::Level0),
+        Some("Level1Cumulative") => {
+            Some(crate::engine::block::snapshot::BackupLevel::Level1Cumulative)
+        }
+        Some("Level1Differential") => {
+            Some(crate::engine::block::snapshot::BackupLevel::Level1Differential)
+        }
+        Some(other) => {
+            return Err(command_error(
+                CommandErrorCode::InvalidInput,
+                format!("Desteklenmeyen backup level: {}", other),
+            ));
+        }
+        None => None,
+    };
+
+    if !job_control::try_claim_destination(&state.inflight_jobs, &destination_id) {
         let _ = queries::insert_skipped_log_entry(
             &state.db,
             &source.id,
@@ -69,11 +86,15 @@ pub async fn run_now(
             None,
         )
         .await;
-        return Err(format!("Destination {} is already running", destination_id));
+        return Err(command_error(
+            CommandErrorCode::ConcurrencyConflict,
+            format!("Destination {} is already running", destination_id),
+        ));
     }
 
     let db = state.db.clone();
     let running_jobs = state.running_jobs.clone();
+    let inflight_jobs = state.inflight_jobs.clone();
     let dest_id_clone = destination_id.clone();
     let app_handle_clone = app_handle.clone();
 
@@ -82,7 +103,7 @@ pub async fn run_now(
     let dest_id_start = destination_id.clone();
     let app_handle_start = app_handle.clone();
 
-    let job_handle = tokio::task::spawn(async move {
+    job_control::spawn_tracked_job(destination_id, running_jobs, inflight_jobs, async move {
         let _ = app_handle_start.emit(
             "copy-started",
             serde_json::json!({
@@ -94,16 +115,6 @@ pub async fn run_now(
 
         let trigger = "Manual".to_string();
         let source_name = source.name.clone();
-        let resolved_level = match backup_level.as_deref() {
-            Some("Level0") => Some(crate::engine::block::snapshot::BackupLevel::Level0),
-            Some("Level1Cumulative") => {
-                Some(crate::engine::block::snapshot::BackupLevel::Level1Cumulative)
-            }
-            Some("Level1Differential") => {
-                Some(crate::engine::block::snapshot::BackupLevel::Level1Differential)
-            }
-            _ => None,
-        };
 
         let job = CopyJob {
             source,
@@ -147,13 +158,7 @@ pub async fn run_now(
                 let _ = app_handle_clone.emit("copy-error", &payload);
             }
         }
-
-        running_jobs.remove(&dest_id_clone);
     });
-
-    state
-        .running_jobs
-        .insert(destination_id, job_handle.abort_handle());
 
     Ok(())
 }
@@ -180,9 +185,7 @@ pub async fn run_source_now(
         }
 
         let dest_id = dest.id.clone();
-
-        // Skip if already running
-        if state.running_jobs.contains_key(&dest_id) {
+        if !job_control::try_claim_destination(&state.inflight_jobs, &dest_id) {
             log::info!(
                 "Destination {} is already running, skipping run_source_now",
                 dest_id
@@ -202,13 +205,13 @@ pub async fn run_source_now(
             continue;
         }
 
-        // Rate limit: 5 second cooldown per destination
         if let Some(last) = state.last_manual_run.get(&dest_id) {
             if last.elapsed() < Duration::from_secs(RUN_NOW_COOLDOWN_SECS) {
                 log::info!(
                     "Destination {} rate limited, skipping run_source_now",
                     dest_id
                 );
+                job_control::release_destination(&state.inflight_jobs, &dest_id);
                 continue;
             }
         }
@@ -218,6 +221,7 @@ pub async fn run_source_now(
 
         let db = state.db.clone();
         let running_jobs = state.running_jobs.clone();
+        let inflight_jobs = state.inflight_jobs.clone();
         let source_clone = source.clone();
         let dest_id_clone = dest_id.clone();
         let app_handle_clone = app_handle.clone();
@@ -227,7 +231,7 @@ pub async fn run_source_now(
         let dest_id_start2 = dest_id_clone.clone();
         let app_handle_start2 = app_handle_clone.clone();
 
-        let job_handle = tokio::task::spawn(async move {
+        job_control::spawn_tracked_job(dest_id, running_jobs, inflight_jobs, async move {
             let _ = app_handle_start2.emit(
                 "copy-started",
                 serde_json::json!({
@@ -277,13 +281,7 @@ pub async fn run_source_now(
                     let _ = app_handle_clone.emit("copy-error", &payload);
                 }
             }
-
-            running_jobs.remove(&dest_id_clone);
         });
-
-        state
-            .running_jobs
-            .insert(dest_id, job_handle.abort_handle());
     }
 
     Ok(())
@@ -294,6 +292,7 @@ pub async fn run_source_now(
 pub async fn pause_all(state: State<'_, AppState>, app_handle: AppHandle) -> Result<(), String> {
     use std::sync::atomic::Ordering;
     state.paused.store(true, Ordering::SeqCst);
+    let _ = state.pause_signal.send(true);
 
     let mut scheduler = state.scheduler.lock().await;
     scheduler.cancel_all();
@@ -309,15 +308,24 @@ pub async fn pause_all(state: State<'_, AppState>, app_handle: AppHandle) -> Res
 pub async fn resume_all(state: State<'_, AppState>, app_handle: AppHandle) -> Result<(), String> {
     use std::sync::atomic::Ordering;
     state.paused.store(false, Ordering::SeqCst);
+    let _ = state.pause_signal.send(false);
 
-    // Reload scheduler from DB
     let db = state.db.clone();
     let running_jobs = state.running_jobs.clone();
+    let inflight_jobs = state.inflight_jobs.clone();
     let paused = state.paused.clone();
+    let pause_rx = state.pause_signal.subscribe();
 
     let mut scheduler = state.scheduler.lock().await;
     scheduler
-        .reload_all(db, running_jobs, app_handle.clone(), paused)
+        .reload_all(
+            db,
+            running_jobs,
+            inflight_jobs,
+            app_handle.clone(),
+            paused,
+            pause_rx,
+        )
         .await;
 
     crate::tray::set_tray_state(&app_handle, "normal");

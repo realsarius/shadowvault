@@ -97,59 +97,82 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                     if let Some(state) = app.try_state::<crate::AppState>() {
                         let db = state.db.clone();
                         let running_jobs = state.running_jobs.clone();
+                        let inflight_jobs = state.inflight_jobs.clone();
                         let app_handle = app.clone();
                         tauri::async_runtime::spawn(async move {
                             match crate::db::queries::get_all_active_destinations(&db).await {
                                 Ok(pairs) => {
                                     for (source, dest) in pairs {
-                                        if running_jobs.contains_key(&dest.id) {
+                                        if !crate::engine::job_control::try_claim_destination(
+                                            &inflight_jobs,
+                                            &dest.id,
+                                        ) {
+                                            let db_skip = db.clone();
+                                            let source_skip = source.clone();
+                                            let dest_skip = dest.clone();
+                                            tauri::async_runtime::spawn(async move {
+                                                let _ = crate::db::queries::insert_skipped_log_entry(
+                                                    &db_skip,
+                                                    &source_skip.id,
+                                                    &dest_skip.id,
+                                                    &source_skip.path,
+                                                    &dest_skip.path,
+                                                    "Manual",
+                                                    "Skipped: destination already has a running job",
+                                                    None,
+                                                    None,
+                                                )
+                                                .await;
+                                            });
                                             continue;
                                         }
                                         let db2 = db.clone();
                                         let rj = running_jobs.clone();
+                                        let inflight = inflight_jobs.clone();
                                         let ah = app_handle.clone();
                                         let dest_id_spawn = dest.id.clone();
-                                        let dest_id_insert = dest.id.clone();
                                         let src_path = source.path.clone();
                                         let dst_path = dest.path.clone();
                                         let ah_start = ah.clone();
                                         let dest_id_start = dest_id_spawn.clone();
 
-                                        let handle = tokio::task::spawn(async move {
-                                            let _ = ah_start.emit(
-                                                "copy-started",
-                                                serde_json::json!({
-                                                    "destination_id": dest_id_start,
-                                                    "source_path": src_path,
-                                                    "destination_path": dst_path,
-                                                }),
-                                            );
-                                            let job = crate::engine::copier::CopyJob {
-                                                source,
-                                                destination: dest,
-                                                trigger: "Manual".to_string(),
-                                                app: Some(ah_start.clone()),
-                                                backup_level: None,
-                                            };
-                                            match job.execute(db2).await {
-                                                Ok(entry) => {
-                                                    let _ = ah.emit("copy-completed", &entry);
+                                        crate::engine::job_control::spawn_tracked_job(
+                                            dest.id.clone(),
+                                            rj,
+                                            inflight,
+                                            async move {
+                                                let _ = ah_start.emit(
+                                                    "copy-started",
+                                                    serde_json::json!({
+                                                        "destination_id": dest_id_start,
+                                                        "source_path": src_path,
+                                                        "destination_path": dst_path,
+                                                    }),
+                                                );
+                                                let job = crate::engine::copier::CopyJob {
+                                                    source,
+                                                    destination: dest,
+                                                    trigger: "Manual".to_string(),
+                                                    app: Some(ah_start.clone()),
+                                                    backup_level: None,
+                                                };
+                                                match job.execute(db2).await {
+                                                    Ok(entry) => {
+                                                        let _ = ah.emit("copy-completed", &entry);
+                                                    }
+                                                    Err(e) => {
+                                                        crate::tray::set_tray_state(&ah, "error");
+                                                        let _ = ah.emit(
+                                                            "copy-error",
+                                                            serde_json::json!({
+                                                                "destination_id": dest_id_spawn,
+                                                                "error": e.to_string()
+                                                            }),
+                                                        );
+                                                    }
                                                 }
-                                                Err(e) => {
-                                                    crate::tray::set_tray_state(&ah, "error");
-                                                    let _ = ah.emit(
-                                                        "copy-error",
-                                                        serde_json::json!({
-                                                            "destination_id": dest_id_spawn,
-                                                            "error": e.to_string()
-                                                        }),
-                                                    );
-                                                }
-                                            }
-                                            rj.remove(&dest_id_spawn);
-                                        });
-
-                                        running_jobs.insert(dest_id_insert, handle.abort_handle());
+                                            },
+                                        );
                                     }
                                 }
                                 Err(e) => log::error!("Tray run_all error: {}", e),
@@ -162,6 +185,37 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
                         let was_paused = state.paused.load(Ordering::SeqCst);
                         state.paused.store(!was_paused, Ordering::SeqCst);
                         let now_paused = !was_paused;
+                        let _ = state.pause_signal.send(now_paused);
+
+                        if now_paused {
+                            let scheduler = state.scheduler.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let mut sched = scheduler.lock().await;
+                                sched.cancel_all();
+                            });
+                        } else {
+                            let db = state.db.clone();
+                            let running_jobs = state.running_jobs.clone();
+                            let inflight_jobs = state.inflight_jobs.clone();
+                            let paused = state.paused.clone();
+                            let pause_rx = state.pause_signal.subscribe();
+                            let scheduler = state.scheduler.clone();
+                            let app_handle = app.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let mut sched = scheduler.lock().await;
+                                sched
+                                    .reload_all(
+                                        db,
+                                        running_jobs,
+                                        inflight_jobs,
+                                        app_handle,
+                                        paused,
+                                        pause_rx,
+                                    )
+                                    .await;
+                            });
+                        }
+
                         let _ = app.emit(
                             "scheduler-status",
                             serde_json::json!({ "paused": now_paused }),

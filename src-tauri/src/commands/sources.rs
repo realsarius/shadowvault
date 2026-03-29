@@ -105,8 +105,12 @@ pub async fn update_source(
     // Restart watcher so it picks up the new source path
     let db = state.db.clone();
     let running_jobs = state.running_jobs.clone();
+    let inflight_jobs = state.inflight_jobs.clone();
+    let paused = state.paused.clone();
     let mut watcher = state.watcher.lock().await;
-    watcher.start(db, running_jobs, app_handle).await;
+    watcher
+        .start(db, running_jobs, inflight_jobs, app_handle, paused)
+        .await;
 
     Ok(())
 }
@@ -124,6 +128,7 @@ pub async fn delete_source(
         for dest in dests {
             scheduler.cancel(&dest.id);
             state.running_jobs.remove(&dest.id);
+            state.inflight_jobs.remove(&dest.id);
         }
     }
 
@@ -134,8 +139,12 @@ pub async fn delete_source(
     // Restart watcher — source removed may have had OnChange destinations
     let db = state.db.clone();
     let running_jobs = state.running_jobs.clone();
+    let inflight_jobs = state.inflight_jobs.clone();
+    let paused = state.paused.clone();
     let mut watcher = state.watcher.lock().await;
-    watcher.start(db, running_jobs, app_handle).await;
+    watcher
+        .start(db, running_jobs, inflight_jobs, app_handle, paused)
+        .await;
 
     Ok(())
 }
@@ -258,8 +267,12 @@ pub async fn add_destination(
         Schedule::OnChange => {
             let db = state.db.clone();
             let running_jobs = state.running_jobs.clone();
+            let inflight_jobs = state.inflight_jobs.clone();
+            let paused = state.paused.clone();
             let mut watcher = state.watcher.lock().await;
-            watcher.start(db, running_jobs, app_handle).await;
+            watcher
+                .start(db, running_jobs, inflight_jobs, app_handle, paused)
+                .await;
         }
         Schedule::Interval { .. } | Schedule::Cron { .. } => {
             let source = queries::get_source_by_id(&state.db, &dest.source_id)
@@ -273,8 +286,10 @@ pub async fn add_destination(
                 source.clone(),
                 state.db.clone(),
                 state.running_jobs.clone(),
+                state.inflight_jobs.clone(),
                 app_handle.clone(),
                 state.paused.clone(),
+                state.pause_signal.subscribe(),
             );
 
             // Schedule Level 1 if enabled
@@ -286,8 +301,10 @@ pub async fn add_destination(
                             source,
                             state.db.clone(),
                             state.running_jobs.clone(),
+                            state.inflight_jobs.clone(),
                             app_handle,
                             state.paused.clone(),
+                            state.pause_signal.subscribe(),
                         );
                     }
                 }
@@ -473,8 +490,12 @@ pub async fn update_destination(
         Schedule::OnChange => {
             let db = state.db.clone();
             let running_jobs = state.running_jobs.clone();
+            let inflight_jobs = state.inflight_jobs.clone();
+            let paused = state.paused.clone();
             let mut watcher = state.watcher.lock().await;
-            watcher.start(db, running_jobs, app_handle).await;
+            watcher
+                .start(db, running_jobs, inflight_jobs, app_handle, paused)
+                .await;
         }
         Schedule::Interval { .. } | Schedule::Cron { .. } => {
             let source = queries::get_source_by_id(&state.db, &dest.source_id)
@@ -488,8 +509,10 @@ pub async fn update_destination(
                 source.clone(),
                 state.db.clone(),
                 state.running_jobs.clone(),
+                state.inflight_jobs.clone(),
                 app_handle.clone(),
                 state.paused.clone(),
+                state.pause_signal.subscribe(),
             );
 
             // Schedule Level 1 if enabled
@@ -501,8 +524,10 @@ pub async fn update_destination(
                             source,
                             state.db.clone(),
                             state.running_jobs.clone(),
+                            state.inflight_jobs.clone(),
                             app_handle,
                             state.paused.clone(),
+                            state.pause_signal.subscribe(),
                         );
                     }
                 }
@@ -540,6 +565,7 @@ pub async fn delete_destination(
         let mut scheduler = state.scheduler.lock().await;
         scheduler.cancel(&id);
         state.running_jobs.remove(&id);
+        state.inflight_jobs.remove(&id);
     }
 
     queries::delete_destination(&state.db, &id)
@@ -550,8 +576,12 @@ pub async fn delete_destination(
     if was_onchange {
         let db = state.db.clone();
         let running_jobs = state.running_jobs.clone();
+        let inflight_jobs = state.inflight_jobs.clone();
+        let paused = state.paused.clone();
         let mut watcher = state.watcher.lock().await;
-        watcher.start(db, running_jobs, app_handle).await;
+        watcher
+            .start(db, running_jobs, inflight_jobs, app_handle, paused)
+            .await;
     }
 
     Ok(())
