@@ -101,7 +101,25 @@ jobs:
             raw_type="${raw_type%%(*}"
             raw_type="${raw_type%%!*}"
 
-            line="- \`${short_hash}\` ${subject}"
+            scope=""
+            if [[ "${normalized_subject}" =~ ^[a-z]+\(([^)]+)\): ]]; then
+              scope="${BASH_REMATCH[1]}"
+            fi
+            scope_suffix=""
+            if [[ -n "${scope}" ]]; then
+              scope_suffix=" (${scope})"
+            fi
+
+            case "${raw_type}" in
+              feat) message="Add feature updates${scope_suffix}" ;;
+              fix) message="Fix issues and edge cases${scope_suffix}" ;;
+              refactor|perf) message="Refactor and performance improvements${scope_suffix}" ;;
+              ci|build|chore) message="CI, build, and tooling updates${scope_suffix}" ;;
+              docs|test) message="Documentation and test updates${scope_suffix}" ;;
+              *) message="General maintenance updates${scope_suffix}" ;;
+            esac
+
+            line="- \`${short_hash}\` ${message}"
             case "${raw_type}" in
               feat) echo "${line}" >> "${features_file}" ;;
               fix) echo "${line}" >> "${fixes_file}" ;;
