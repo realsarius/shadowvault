@@ -9,6 +9,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::{watch, Mutex};
 use vault::session::SessionStore;
 
+pub mod cli;
 pub mod commands;
 pub mod crypto_utils;
 pub mod db;
@@ -115,6 +116,13 @@ pub fn run() {
     env_logger::init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            // İkinci instance gelince mevcut pencereyi öne getir
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,

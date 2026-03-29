@@ -59,6 +59,8 @@ async-trait = "0.1"
 specta = { version = "=2.0.0-rc.22", features = ["chrono", "serde_json"] }
 specta-typescript = "=0.0.9"
 tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
+clap = { version = "4", features = ["derive"] }
+tauri-plugin-single-instance = "2"
 
 [dev-dependencies]
 tempfile = "3"
