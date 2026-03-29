@@ -16,7 +16,7 @@ jobs:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             target: aarch64-apple-darwin
-          - platform: macos-13
+          - platform: macos-15-intel
             args: '--target x86_64-apple-darwin'
             target: x86_64-apple-darwin
           - platform: windows-latest
@@ -70,7 +70,7 @@ jobs:
           echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@3)/lib" >> $GITHUB_ENV
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v1
+        uses: tauri-apps/tauri-action@action-v0.6.2
         env:
           SHADOWVAULT_GUI: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
