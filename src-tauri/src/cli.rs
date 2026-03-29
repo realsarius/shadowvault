@@ -1,11 +1,4 @@
 //! ShadowVault CLI — headless mod
-//!
-//! Kullanım:
-//!   shadowvault sources list [--json]
-//!   shadowvault destinations list [--source-id <id>] [--json]
-//!   shadowvault logs [--limit <n>] [--status <s>] [--source-id <id>] [--destination-id <id>] [--json]
-//!   shadowvault status [--json]
-//!   shadowvault run-now --destination-id <id> [--level level0|level1-cumulative|level1-differential] [--json]
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::sync::Arc;
@@ -14,6 +7,8 @@ use crate::db;
 use crate::db::queries;
 use crate::engine::block::snapshot::BackupLevel;
 use crate::engine::copier::CopyJob;
+use crate::vault::crypto::derive_key;
+use crate::vault::fs::{move_entry, EntryKind, VaultEntry, VaultMeta};
 
 // ── CLI tanımı ─────────────────────────────────────────────────────────────
 
@@ -42,6 +37,11 @@ pub enum Commands {
     Status(StatusCmd),
     /// Bir hedefi hemen yedekle
     RunNow(RunNowCmd),
+    /// Şifreli kasa işlemleri
+    Vault {
+        #[command(subcommand)]
+        cmd: VaultSubcmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -99,6 +99,48 @@ pub enum BackupLevelArg {
     Level0,
     Level1Cumulative,
     Level1Differential,
+}
+
+#[derive(Subcommand)]
+pub enum VaultSubcmd {
+    /// Tüm kasaları listele
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Kasa içeriğini göster
+    Ls {
+        #[arg(long, help = "Kasa ID'si")]
+        id: String,
+        #[arg(long, help = "Kasa şifresi (yoksa VAULT_PASSWORD env kullanılır)")]
+        password: Option<String>,
+        #[arg(long, help = "Klasör ID'si (boşsa kök dizin)")]
+        parent: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Bir girişi klasöre taşı
+    Mv {
+        #[arg(long, help = "Kasa ID'si")]
+        id: String,
+        #[arg(long, help = "Kasa şifresi")]
+        password: Option<String>,
+        #[arg(long, help = "Taşınacak giriş ID'si")]
+        entry: String,
+        #[arg(long, help = "Hedef klasör ID'si (boşsa kök dizine taşı)")]
+        to: Option<String>,
+    },
+    /// Yeni klasör oluştur
+    Mkdir {
+        #[arg(long, help = "Kasa ID'si")]
+        id: String,
+        #[arg(long, help = "Kasa şifresi")]
+        password: Option<String>,
+        #[arg(long, help = "Klasör adı")]
+        name: String,
+        #[arg(long, help = "Üst klasör ID'si (boşsa kök dizin)")]
+        parent: Option<String>,
+    },
 }
 
 // ── DB yolu çözümleme ───────────────────────────────────────────────────────
@@ -197,6 +239,7 @@ async fn dispatch(cli: Cli) -> i32 {
         Commands::Logs(cmd) => cmd_logs(&pool, cmd).await,
         Commands::Status(cmd) => cmd_status(&pool, cmd).await,
         Commands::RunNow(cmd) => cmd_run_now(&pool, cmd).await,
+        Commands::Vault { cmd } => cmd_vault(&pool, cmd).await,
     }
 }
 
@@ -212,7 +255,10 @@ async fn cmd_sources(pool: &sqlx::SqlitePool, json: bool) -> i32 {
     };
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&sources).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&sources).unwrap_or_default()
+        );
         return 0;
     }
 
@@ -238,11 +284,7 @@ async fn cmd_sources(pool: &sqlx::SqlitePool, json: bool) -> i32 {
 
 // ── destinations list ───────────────────────────────────────────────────────
 
-async fn cmd_destinations(
-    pool: &sqlx::SqlitePool,
-    source_id: Option<String>,
-    json: bool,
-) -> i32 {
+async fn cmd_destinations(pool: &sqlx::SqlitePool, source_id: Option<String>, json: bool) -> i32 {
     let sources = match queries::get_all_sources(pool).await {
         Ok(s) => s,
         Err(e) => {
@@ -264,11 +306,11 @@ async fn cmd_destinations(
     }
 
     if json {
-        let json_dests: Vec<_> = all_dests
-            .iter()
-            .map(|(_, _, d)| d)
-            .collect();
-        println!("{}", serde_json::to_string_pretty(&json_dests).unwrap_or_default());
+        let json_dests: Vec<_> = all_dests.iter().map(|(_, _, d)| d).collect();
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json_dests).unwrap_or_default()
+        );
         return 0;
     }
 
@@ -323,7 +365,10 @@ async fn cmd_logs(pool: &sqlx::SqlitePool, cmd: LogsCmd) -> i32 {
     };
 
     if cmd.json {
-        println!("{}", serde_json::to_string_pretty(&logs).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&logs).unwrap_or_default()
+        );
         return 0;
     }
 
@@ -350,8 +395,14 @@ async fn cmd_logs(pool: &sqlx::SqlitePool, cmd: LogsCmd) -> i32 {
             }
             None => "-".into(),
         };
-        let size = log.bytes_copied.map(human_bytes).unwrap_or_else(|| "-".into());
-        let files = log.files_copied.map(|f| f.to_string()).unwrap_or_else(|| "-".into());
+        let size = log
+            .bytes_copied
+            .map(human_bytes)
+            .unwrap_or_else(|| "-".into());
+        let files = log
+            .files_copied
+            .map(|f| f.to_string())
+            .unwrap_or_else(|| "-".into());
         let dest = truncate(&log.destination_path, 29);
         let status_or_err = match &log.error_message {
             Some(e) => truncate(e, 40),
@@ -378,7 +429,10 @@ async fn cmd_status(pool: &sqlx::SqlitePool, cmd: StatusCmd) -> i32 {
     };
 
     if cmd.json {
-        println!("{}", serde_json::to_string_pretty(&sources).unwrap_or_default());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&sources).unwrap_or_default()
+        );
         return 0;
     }
 
@@ -451,10 +505,7 @@ async fn cmd_run_now(pool: &sqlx::SqlitePool, cmd: RunNowCmd) -> i32 {
     });
 
     if !cmd.json {
-        eprintln!(
-            "Yedekleme başlatılıyor: {} → {}",
-            source.path, dest.path
-        );
+        eprintln!("Yedekleme başlatılıyor: {} → {}", source.path, dest.path);
     }
 
     let job = CopyJob {
@@ -474,17 +525,20 @@ async fn cmd_run_now(pool: &sqlx::SqlitePool, cmd: RunNowCmd) -> i32 {
                 );
             } else {
                 eprintln!("Tamamlandı.");
-                println!(
-                    "Durum     : {}",
-                    log_entry.status
-                );
+                println!("Durum     : {}", log_entry.status);
                 println!(
                     "Dosyalar  : {}",
-                    log_entry.files_copied.map(|f| f.to_string()).unwrap_or_else(|| "-".into())
+                    log_entry
+                        .files_copied
+                        .map(|f| f.to_string())
+                        .unwrap_or_else(|| "-".into())
                 );
                 println!(
                     "Boyut     : {}",
-                    log_entry.bytes_copied.map(human_bytes).unwrap_or_else(|| "-".into())
+                    log_entry
+                        .bytes_copied
+                        .map(human_bytes)
+                        .unwrap_or_else(|| "-".into())
                 );
                 if let Some(err) = &log_entry.error_message {
                     eprintln!("Hata      : {}", err);
@@ -494,16 +548,250 @@ async fn cmd_run_now(pool: &sqlx::SqlitePool, cmd: RunNowCmd) -> i32 {
         }
         Err(e) => {
             if cmd.json {
-                eprintln!(
-                    "{}",
-                    serde_json::json!({ "error": e.to_string() })
-                );
+                eprintln!("{}", serde_json::json!({ "error": e.to_string() }));
             } else {
                 eprintln!("Yedekleme başarısız: {}", e);
             }
             1
         }
     }
+}
+
+// ── vault ───────────────────────────────────────────────────────────────────
+
+async fn cmd_vault(pool: &sqlx::SqlitePool, cmd: VaultSubcmd) -> i32 {
+    match cmd {
+        VaultSubcmd::List { json } => vault_list(pool, json).await,
+        VaultSubcmd::Ls {
+            id,
+            password,
+            parent,
+            json,
+        } => vault_ls(pool, &id, password, parent.as_deref(), json).await,
+        VaultSubcmd::Mv {
+            id,
+            password,
+            entry,
+            to,
+        } => vault_mv(pool, &id, password, &entry, to.as_deref()).await,
+        VaultSubcmd::Mkdir {
+            id,
+            password,
+            name,
+            parent,
+        } => vault_mkdir(pool, &id, password, &name, parent.as_deref()).await,
+    }
+}
+
+/// DB'den vault_path al, şifreyle master key türet.
+async fn vault_open(
+    pool: &sqlx::SqlitePool,
+    vault_id: &str,
+    password: Option<String>,
+) -> Result<(std::path::PathBuf, VaultMeta), String> {
+    let vault_path: String = sqlx::query_scalar("SELECT vault_path FROM vaults WHERE id = ?")
+        .bind(vault_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Kasa '{}' bulunamadı.", vault_id))?;
+
+    let vault_path = std::path::PathBuf::from(&vault_path);
+
+    let salt_hex = std::fs::read_to_string(vault_path.join(".shadow_salt"))
+        .map_err(|_| "Kasa salt dosyası bulunamadı.".to_string())?;
+    let salt_bytes =
+        hex::decode(salt_hex.trim()).map_err(|_| "Geçersiz salt formatı.".to_string())?;
+
+    let pwd = password
+        .or_else(|| std::env::var("VAULT_PASSWORD").ok())
+        .ok_or_else(|| {
+            "Şifre gerekli: --password <şifre> veya VAULT_PASSWORD env değişkeni kullanın."
+                .to_string()
+        })?;
+
+    let master_key =
+        derive_key(&pwd, &salt_bytes).map_err(|e| format!("Anahtar türetme hatası: {}", e))?;
+
+    let meta = VaultMeta::load(&vault_path, &master_key)
+        .map_err(|_| "Yanlış şifre veya bozuk kasa.".to_string())?;
+
+    Ok((vault_path, meta))
+}
+
+async fn vault_list(pool: &sqlx::SqlitePool, json: bool) -> i32 {
+    let rows: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT id, name, vault_path FROM vaults ORDER BY created_at DESC")
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+
+    if json {
+        let out: Vec<_> = rows
+            .iter()
+            .map(|(id, name, path)| serde_json::json!({ "id": id, "name": name, "path": path }))
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+        return 0;
+    }
+
+    if rows.is_empty() {
+        println!("Kasa bulunamadı.");
+        return 0;
+    }
+
+    println!("{:<38} {:<20} {}", "ID", "Ad", "Yol");
+    println!("{}", "-".repeat(90));
+    for (id, name, path) in &rows {
+        println!("{:<38} {:<20} {}", id, truncate(name, 19), path);
+    }
+    0
+}
+
+async fn vault_ls(
+    pool: &sqlx::SqlitePool,
+    vault_id: &str,
+    password: Option<String>,
+    parent: Option<&str>,
+    json: bool,
+) -> i32 {
+    let (_, meta) = match vault_open(pool, vault_id, password).await {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Hata: {}", e);
+            return 1;
+        }
+    };
+
+    let entries: Vec<_> = meta
+        .entries
+        .iter()
+        .filter(|e| e.parent_id.as_deref() == parent)
+        .collect();
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&entries).unwrap_or_default()
+        );
+        return 0;
+    }
+
+    if entries.is_empty() {
+        println!("Bu dizin boş.");
+        return 0;
+    }
+
+    println!("{:<38} {:<12} {}", "ID", "Tür", "Ad");
+    println!("{}", "-".repeat(70));
+    for e in &entries {
+        println!(
+            "{:<38} {:<12} {}",
+            e.id,
+            if matches!(e.kind, EntryKind::Directory) {
+                "📁 Klasör"
+            } else {
+                "📄 Dosya"
+            },
+            e.name
+        );
+    }
+    println!("\nToplam: {} giriş", entries.len());
+    0
+}
+
+async fn vault_mv(
+    pool: &sqlx::SqlitePool,
+    vault_id: &str,
+    password: Option<String>,
+    entry_id: &str,
+    to: Option<&str>,
+) -> i32 {
+    let (vault_path, mut meta) = match vault_open(pool, vault_id, password.clone()).await {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Hata: {}", e);
+            return 1;
+        }
+    };
+
+    if let Err(e) = move_entry(&mut meta, entry_id, to) {
+        eprintln!("Taşıma hatası: {}", e);
+        return 1;
+    }
+
+    // Master key'i tekrar türet (save için gerekli)
+    let salt_hex = std::fs::read_to_string(vault_path.join(".shadow_salt")).unwrap_or_default();
+    let salt_bytes = hex::decode(salt_hex.trim()).unwrap_or_default();
+    let pwd = password
+        .or_else(|| std::env::var("VAULT_PASSWORD").ok())
+        .unwrap_or_default();
+    let master_key = match derive_key(&pwd, &salt_bytes) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("Anahtar hatası: {}", e);
+            return 1;
+        }
+    };
+
+    if let Err(e) = meta.save(&vault_path, &master_key) {
+        eprintln!("Kaydetme hatası: {}", e);
+        return 1;
+    }
+
+    let dest = to.unwrap_or("(kök dizin)");
+    println!("Taşındı: {} → {}", entry_id, dest);
+    0
+}
+
+async fn vault_mkdir(
+    pool: &sqlx::SqlitePool,
+    vault_id: &str,
+    password: Option<String>,
+    name: &str,
+    parent: Option<&str>,
+) -> i32 {
+    use uuid::Uuid;
+
+    let (vault_path, mut meta) = match vault_open(pool, vault_id, password.clone()).await {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Hata: {}", e);
+            return 1;
+        }
+    };
+
+    let new_id = Uuid::new_v4().simple().to_string();
+    meta.entries.push(VaultEntry {
+        id: new_id.clone(),
+        name: name.to_string(),
+        kind: EntryKind::Directory,
+        parent_id: parent.map(str::to_string),
+        size: None,
+        modified: Some(chrono::Utc::now().to_rfc3339()),
+        nonce: None,
+    });
+
+    let salt_hex = std::fs::read_to_string(vault_path.join(".shadow_salt")).unwrap_or_default();
+    let salt_bytes = hex::decode(salt_hex.trim()).unwrap_or_default();
+    let pwd = password
+        .or_else(|| std::env::var("VAULT_PASSWORD").ok())
+        .unwrap_or_default();
+    let master_key = match derive_key(&pwd, &salt_bytes) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("Anahtar hatası: {}", e);
+            return 1;
+        }
+    };
+
+    if let Err(e) = meta.save(&vault_path, &master_key) {
+        eprintln!("Kaydetme hatası: {}", e);
+        return 1;
+    }
+
+    println!("Klasör oluşturuldu: {} ({})", name, new_id);
+    0
 }
 
 // ── yardımcı fonksiyonlar ───────────────────────────────────────────────────

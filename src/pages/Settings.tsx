@@ -88,7 +88,13 @@ export function Settings() {
       setUpdateInfo(info);
       if (!info.available) toast.info(t("set_update_none"));
     } catch (e: any) {
-      toast.error(e?.message ?? t("set_update_err"));
+      const msg: string = e?.message ?? "";
+      // Endpoint 404 veya ağ hatası → kritik hata değil
+      if (msg.includes("status code") || msg.includes("network") || msg.includes("Failed to fetch")) {
+        toast.info(t("set_update_none"));
+      } else {
+        toast.error(msg || t("set_update_err"));
+      }
     } finally { setCheckingUpdate(false); }
   };
 

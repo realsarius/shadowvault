@@ -3,6 +3,10 @@ name = "shadowvault"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name = "ShadowVault"
+path = "src/main.rs"
+
 [lib]
 name = "shadowvault_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]

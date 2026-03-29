@@ -168,6 +168,10 @@ export const api = {
       invoke<string>("get_thumbnail", { vaultId, entryId }),
     deleteVault: (vaultId: string, password: string) =>
       invoke<void>("delete_vault", { vaultId, password }),
+    exportVault: (vaultId: string, destDir: string) =>
+      invoke<string>("export_vault_cmd", { vaultId, destDir }),
+    importVault: (srcDir: string) =>
+      invoke<VaultSummary>("import_vault_cmd", { srcDir }),
     changePassword: (vaultId: string, oldPassword: string, newPassword: string) =>
       invoke<void>("change_vault_password", { vaultId, oldPassword, newPassword }),
     getOpenFiles: (vaultId: string) =>

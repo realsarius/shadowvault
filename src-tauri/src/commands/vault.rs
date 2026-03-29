@@ -30,6 +30,13 @@ pub struct VaultSummary {
     pub unlocked: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct VaultExportManifest {
+    name: String,
+    algorithm: String,
+    created_at: String,
+}
+
 // ─── Yardımcı Fonksiyonlar ──────────────────────────────────────────────────
 
 /// Uygulama data dizini içinde vaults klasörünü döner.
@@ -42,6 +49,31 @@ fn vaults_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn vault_path_for(app: &tauri::AppHandle, vault_id: &str) -> Result<PathBuf, String> {
     Ok(vaults_dir(app)?.join(vault_id))
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    if !src.is_dir() {
+        return Err(command_error(
+            CommandErrorCode::InvalidInput,
+            "Seçilen kaynak klasör değil.",
+        ));
+    }
+
+    std::fs::create_dir_all(dst).map_err(|e| e.to_string())?;
+
+    for entry in std::fs::read_dir(src).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else if src_path.is_file() {
+            std::fs::copy(&src_path, &dst_path).map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
 }
 
 /// SessionStore'u AppState'ten al (lazy init ile manage edildi).
@@ -650,6 +682,148 @@ pub async fn delete_vault(
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn export_vault_cmd(
+    app: tauri::AppHandle,
+    db_state: State<'_, AppState>,
+    vault_id: String,
+    dest_dir: String,
+) -> Result<String, String> {
+    let source_path = vault_path_for(&app, &vault_id)?;
+    if !source_path.exists() {
+        return Err(command_error(
+            CommandErrorCode::NotFound,
+            "Vault bulunamadı.",
+        ));
+    }
+
+    let row = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT name, algorithm, created_at FROM vaults WHERE id = ?",
+    )
+    .bind(&vault_id)
+    .fetch_optional(db_state.db.as_ref())
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or_else(|| command_error(CommandErrorCode::NotFound, "Vault bulunamadı."))?;
+
+    let (name, algorithm, created_at) = row;
+    let safe_name = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    let ts = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    let export_dir = Path::new(&dest_dir).join(format!("{safe_name}-{ts}"));
+    std::fs::create_dir_all(&export_dir).map_err(|e| e.to_string())?;
+    copy_dir_recursive(&source_path, &export_dir)?;
+
+    let manifest = VaultExportManifest {
+        name,
+        algorithm,
+        created_at,
+    };
+    let manifest_path = export_dir.join(".shadow_export.json");
+    let manifest_json = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
+    std::fs::write(&manifest_path, manifest_json).map_err(|e| e.to_string())?;
+
+    Ok(export_dir.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn import_vault_cmd(
+    app: tauri::AppHandle,
+    db_state: State<'_, AppState>,
+    session: State<'_, Arc<SessionStore>>,
+    src_dir: String,
+) -> Result<VaultSummary, String> {
+    use chrono::Utc;
+    use uuid::Uuid;
+
+    let source_path = PathBuf::from(&src_dir);
+    if !source_path.is_dir() {
+        return Err(command_error(
+            CommandErrorCode::InvalidInput,
+            "Seçilen klasör geçerli değil.",
+        ));
+    }
+
+    let meta_path = source_path.join(".shadow_meta");
+    let salt_path = source_path.join(".shadow_salt");
+    if !meta_path.exists() || !salt_path.exists() {
+        return Err(command_error(
+            CommandErrorCode::InvalidInput,
+            "Seçilen klasör geçerli bir ShadowVault kasası değil.",
+        ));
+    }
+
+    let manifest_path = source_path.join(".shadow_export.json");
+    let manifest = if manifest_path.exists() {
+        std::fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<VaultExportManifest>(&s).ok())
+    } else {
+        None
+    };
+
+    let fallback_name = source_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("Imported Vault")
+        .to_string();
+    let name = manifest
+        .as_ref()
+        .map(|m| m.name.clone())
+        .unwrap_or(fallback_name);
+    let algorithm = manifest
+        .as_ref()
+        .map(|m| m.algorithm.clone())
+        .unwrap_or_else(|| "AES-256-GCM".to_string());
+    let created_at = manifest
+        .as_ref()
+        .map(|m| m.created_at.clone())
+        .unwrap_or_else(|| Utc::now().to_rfc3339());
+
+    let vault_id = Uuid::new_v4().simple().to_string();
+    let target_path = vault_path_for(&app, &vault_id)?;
+    copy_dir_recursive(&source_path, &target_path)?;
+
+    sqlx::query(
+        "INSERT INTO vaults (id, name, algorithm, vault_path, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+    .bind(&vault_id)
+    .bind(&name)
+    .bind(&algorithm)
+    .bind(target_path.to_string_lossy().to_string())
+    .bind(&created_at)
+    .execute(db_state.db.as_ref())
+    .await
+    .map_err(|e| e.to_string())?;
+
+    let sess = get_session(&session);
+    {
+        let mut guard = session_lock(&sess)?;
+        guard.lock(&vault_id);
+    }
+
+    Ok(VaultSummary {
+        id: vault_id,
+        name,
+        algorithm,
+        vault_path: target_path.to_string_lossy().to_string(),
+        created_at,
+        last_opened: None,
+        unlocked: false,
+    })
 }
 
 #[tauri::command]
