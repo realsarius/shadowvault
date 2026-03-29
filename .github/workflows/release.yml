@@ -92,7 +92,7 @@ jobs:
           touch "${features_file}" "${fixes_file}" "${refactor_file}" "${ci_file}" "${docs_file}" "${other_file}"
 
           commit_count=0
-          while IFS=$'\x1f' read -r short_hash subject; do
+          while IFS=$'\x1f' read -r short_hash subject || [[ -n "${short_hash:-}" ]]; do
             [[ -z "${short_hash}" ]] && continue
             commit_count=$((commit_count + 1))
 
