@@ -16,7 +16,7 @@ jobs:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
             target: aarch64-apple-darwin
-          - platform: macos-latest
+          - platform: macos-13
             args: '--target x86_64-apple-darwin'
             target: x86_64-apple-darwin
           - platform: windows-latest
@@ -29,12 +29,12 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install Rust stable
@@ -70,7 +70,7 @@ jobs:
           echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@3)/lib" >> $GITHUB_ENV
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           SHADOWVAULT_GUI: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
