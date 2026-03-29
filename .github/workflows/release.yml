@@ -177,6 +177,14 @@ jobs:
           echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl@3)/include" >> $GITHUB_ENV
           echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@3)/lib" >> $GITHUB_ENV
 
+      - name: Verify signing key is set
+        shell: bash
+        run: |
+          if [[ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is not set. latest.json will not be generated and the in-app updater will not work."
+            exit 1
+          fi
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@action-v0.6.2
         env:
