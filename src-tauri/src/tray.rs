@@ -73,7 +73,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let status = MenuItem::with_id(app, "status", "● ShadowVault Aktif", false, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let run_all = MenuItem::with_id(app, "run_all", "Şimdi Hepsini Çalıştır", true, None::<&str>)?;
-    let pause = MenuItem::with_id(app, "pause", "Duraklet", true, None::<&str>)?;
+    let pause = MenuItem::with_id(app, "pause", "Duraklat", true, None::<&str>)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let show = MenuItem::with_id(app, "show", "Pencereyi Göster", true, None::<&str>)?;
     let about = MenuItem::with_id(app, "about", "Hakkında ShadowVault", true, None::<&str>)?;

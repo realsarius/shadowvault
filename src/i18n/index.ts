@@ -23,7 +23,7 @@ const tr = {
   btn_next: "İleri",
   btn_back: "Geri",
   btn_browse: "Seç",
-  btn_run_now: "▶ Şimdi Çalıştır",
+  btn_run_now: "Şimdi Çalıştır",
   btn_running: "Çalışıyor...",
   btn_refresh: "↻ Yenile",
   btn_clear: "Temizle",

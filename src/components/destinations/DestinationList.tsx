@@ -1,5 +1,5 @@
 import { createSignal, For, Show } from "solid-js";
-import { TbOutlineFolder, TbOutlineFile, TbOutlineArchive, TbOutlineDotsVertical, TbOutlinePlayerPlay, TbOutlineEye, TbOutlinePencil, TbOutlineTrash, TbOutlineFolderOpen, TbOutlineLock, TbOutlineLockOpen } from "solid-icons/tb";
+import { TbOutlineFolder, TbOutlineFile, TbOutlineArchive, TbOutlineDotsVertical, TbFillPlayerPlay, TbOutlineEye, TbOutlinePencil, TbOutlineTrash, TbOutlineFolderOpen, TbOutlineLock, TbOutlineLockOpen } from "solid-icons/tb";
 import { toast } from "solid-sonner";
 import { Modal } from "../ui/Modal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
@@ -297,19 +297,18 @@ export function DestinationList(props: Props) {
                               disabled={isRunning()}
                               onClick={() => setRunSubMenu(runSubMenu() === dest.id ? null : dest.id)}
                             >
-                              <TbOutlinePlayerPlay size={14} />
+                              <TbFillPlayerPlay size={14} />
                               {isRunning() ? t("btn_running") : t("btn_run_now")}
-                              <span style={{ "margin-left": "auto", "font-size": "10px", opacity: 0.6 }}>▸</span>
                             </button>
                             <Show when={runSubMenu() === dest.id}>
                               <div class={styles.dropdown} style={{ position: "absolute", right: "100%", top: "0", "min-width": "180px", "z-index": "1001" }}>
                                 <button class={styles.dropItem} onClick={() => handleRunNow(dest.id, "Level0")}>
-                                  <TbOutlinePlayerPlay size={14} />
+                                  <TbFillPlayerPlay size={14} />
                                   Level 0 (Full)
                                 </button>
                                 <Show when={dest.level1_enabled}>
                                   <button class={styles.dropItem} onClick={() => handleRunNow(dest.id, dest.level1_type === "Differential" ? "Level1Differential" : "Level1Cumulative")}>
-                                    <TbOutlinePlayerPlay size={14} />
+                                    <TbFillPlayerPlay size={14} />
                                     Level 1 ({dest.level1_type === "Differential" ? "Diff" : "Cum"})
                                   </button>
                                 </Show>
