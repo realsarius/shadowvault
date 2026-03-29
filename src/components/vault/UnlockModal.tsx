@@ -5,6 +5,7 @@ import { Button } from "../ui/Button";
 import { api } from "../../api/tauri";
 import { t } from "../../i18n";
 import type { VaultSummary } from "../../store/types";
+import { parseCommandError } from "../../utils/commandError";
 import styles from "./VaultModal.module.css";
 
 interface Props {
@@ -36,7 +37,8 @@ export function UnlockModal(props: Props) {
       props.onUnlocked(props.vault.id);
       props.onClose();
     } catch (err: any) {
-      const msg = t("vault_wrong_password");
+      const parsed = parseCommandError(err);
+      const msg = parsed.error_code === "wrong_password" ? t("vault_wrong_password") : parsed.message;
       setError(msg);
       toast.error(msg);
     } finally {

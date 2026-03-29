@@ -79,6 +79,10 @@ function actionHintByCode(code: RestoreErrorCode | null): string {
   if (code === "chain_incomplete") return t("err_action_check_chain");
   if (code === "blocked_path") return t("err_action_retry_path");
   if (code === "io_failure") return t("err_action_retry");
+  if (code === "vault_locked") return t("err_action_check_password");
+  if (code === "invalid_input") return t("err_action_retry");
+  if (code === "not_found") return t("err_action_select_snapshot");
+  if (code === "concurrency_conflict") return t("err_action_retry");
   return "";
 }
 

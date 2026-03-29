@@ -13,6 +13,7 @@ import { Button } from "../ui/Button";
 import { api } from "../../api/tauri";
 import { t, ti } from "../../i18n";
 import type { VaultSummary } from "../../store/types";
+import { parseCommandError } from "../../utils/commandError";
 import styles from "./VaultSidebar.module.css";
 import modalStyles from "./VaultModal.module.css";
 
@@ -46,8 +47,9 @@ export function VaultSidebar(props: Props) {
       setDeleteTarget(null);
       setDeletePassword("");
       props.onVaultsChange();
-    } catch {
-      const msg = t("vault_wrong_password");
+    } catch (err: any) {
+      const parsed = parseCommandError(err);
+      const msg = parsed.error_code === "wrong_password" ? t("vault_wrong_password") : parsed.message;
       setDeleteError(msg);
       toast.error(msg);
     } finally {

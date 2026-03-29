@@ -171,7 +171,11 @@ export type RestoreErrorCode =
   | "missing_snapshot"
   | "wrong_password"
   | "chain_incomplete"
-  | "io_failure";
+  | "io_failure"
+  | "vault_locked"
+  | "not_found"
+  | "invalid_input"
+  | "concurrency_conflict";
 
 export interface CopyProgress {
   destination_id: string;

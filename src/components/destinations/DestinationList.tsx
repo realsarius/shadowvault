@@ -12,6 +12,7 @@ import { UpgradeModal } from "../../pages/License";
 import { t } from "../../i18n";
 import { api } from "../../api/tauri";
 import { store } from "../../store";
+import { parseCommandError } from "../../utils/commandError";
 import type { Source, Destination, JobStatus } from "../../store/types";
 import styles from "./DestinationList.module.css";
 
@@ -163,7 +164,8 @@ export function DestinationList(props: Props) {
       toast.success(t("dest_decrypt_success").replace("{n}", String(count)));
       setDecryptDest(null);
     } catch (e: any) {
-      toast.error(t("dest_decrypt_error") + ": " + String(e));
+      const parsed = parseCommandError(e);
+      toast.error(t("dest_decrypt_error") + ": " + parsed.message);
     } finally { setDecrypting(false); }
   };
 
