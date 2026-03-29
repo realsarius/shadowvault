@@ -61,9 +61,18 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Install OpenSSL (macOS x86_64 cross-compile)
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: |
+          brew install openssl@3
+          echo "OPENSSL_DIR=$(brew --prefix openssl@3)" >> $GITHUB_ENV
+          echo "OPENSSL_INCLUDE_DIR=$(brew --prefix openssl@3)/include" >> $GITHUB_ENV
+          echo "OPENSSL_LIB_DIR=$(brew --prefix openssl@3)/lib" >> $GITHUB_ENV
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
+          SHADOWVAULT_GUI: 1
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
