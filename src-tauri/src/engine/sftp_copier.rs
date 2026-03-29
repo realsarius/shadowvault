@@ -375,8 +375,7 @@ impl SftpCopyJob {
         version_key: &str,
         file_entries: &[(std::path::PathBuf, String)],
     ) -> anyhow::Result<(i64, i32)> {
-        let mut attempt = 1u32;
-        loop {
+        retry::run_remote_with_retry("SFTP upload", || async {
             let config_clone = config.clone();
             let vk = version_key.to_string();
             let entries = file_entries.to_vec();
@@ -389,29 +388,9 @@ impl SftpCopyJob {
             .await
             .map_err(|e| anyhow::anyhow!("SFTP worker failed: {}", e))?;
 
-            match copy_result {
-                Ok(v) => return Ok(v),
-                Err(e) => {
-                    let msg = e.to_string();
-                    if attempt >= retry::REMOTE_MAX_ATTEMPTS
-                        || !retry::is_transient_error_message(&msg)
-                    {
-                        return Err(e);
-                    }
-
-                    let delay = retry::backoff_delay(attempt);
-                    log::warn!(
-                        "SFTP upload transient failure (attempt {}/{}), retrying in {:?}: {}",
-                        attempt,
-                        retry::REMOTE_MAX_ATTEMPTS,
-                        delay,
-                        msg
-                    );
-                    tokio::time::sleep(delay).await;
-                    attempt += 1;
-                }
-            }
-        }
+            copy_result
+        })
+        .await
     }
 }
 

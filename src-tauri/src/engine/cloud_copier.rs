@@ -306,31 +306,8 @@ impl CloudCopyJob {
         config: &S3Config,
         version_prefix: &str,
     ) -> anyhow::Result<(i64, i32)> {
-        let mut attempt = 1u32;
-        loop {
-            match self.do_upload(config, version_prefix).await {
-                Ok(v) => return Ok(v),
-                Err(e) => {
-                    let msg = e.to_string();
-                    if attempt >= retry::REMOTE_MAX_ATTEMPTS
-                        || !retry::is_transient_error_message(&msg)
-                    {
-                        return Err(e);
-                    }
-
-                    let delay = retry::backoff_delay(attempt);
-                    log::warn!(
-                        "Cloud upload transient failure (attempt {}/{}), retrying in {:?}: {}",
-                        attempt,
-                        retry::REMOTE_MAX_ATTEMPTS,
-                        delay,
-                        msg
-                    );
-                    tokio::time::sleep(delay).await;
-                    attempt += 1;
-                }
-            }
-        }
+        retry::run_remote_with_retry("Cloud upload", || self.do_upload(config, version_prefix))
+            .await
     }
 }
 

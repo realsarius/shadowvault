@@ -274,31 +274,10 @@ impl OAuthCopyJob {
         version_key: &str,
         file_entries: &[(std::path::PathBuf, String)],
     ) -> anyhow::Result<(i64, i32)> {
-        let mut attempt = 1u32;
-        loop {
-            match self.do_upload(op, version_key, file_entries).await {
-                Ok(v) => return Ok(v),
-                Err(e) => {
-                    let msg = e.to_string();
-                    if attempt >= retry::REMOTE_MAX_ATTEMPTS
-                        || !retry::is_transient_error_message(&msg)
-                    {
-                        return Err(e);
-                    }
-
-                    let delay = retry::backoff_delay(attempt);
-                    log::warn!(
-                        "OAuth upload transient failure (attempt {}/{}), retrying in {:?}: {}",
-                        attempt,
-                        retry::REMOTE_MAX_ATTEMPTS,
-                        delay,
-                        msg
-                    );
-                    tokio::time::sleep(delay).await;
-                    attempt += 1;
-                }
-            }
-        }
+        retry::run_remote_with_retry("OAuth upload", || {
+            self.do_upload(op, version_key, file_entries)
+        })
+        .await
     }
 
     async fn collect_files(
