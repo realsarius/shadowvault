@@ -24,6 +24,7 @@
 }
 
 .row {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr 90px 120px;
   padding: 6px 12px;
@@ -33,6 +34,18 @@
   font-size: 13px;
   color: var(--text-primary);
   user-select: none;
+}
+
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.body[data-dragging="true"] .row[data-entry-kind="Directory"] .dropOverlay {
+  pointer-events: auto;
 }
 
 .row:hover {

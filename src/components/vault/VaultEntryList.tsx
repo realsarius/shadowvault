@@ -3,6 +3,7 @@ import { t } from "../../i18n";
 import type { VaultEntry } from "../../store/types";
 import { FileIcon } from "./FileIcon";
 import { api } from "../../api/tauri";
+import { toast } from "solid-sonner";
 import styles from "./VaultEntryList.module.css";
 
 interface Props {
@@ -28,22 +29,19 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }
 
-// Module-level — reactive update'lerden etkilenmez
 let activeDragId: string | null = null;
 let activeDragOverRowEl: HTMLElement | null = null;
 
-function closestRow(el: EventTarget | null): HTMLElement | null {
-  return (el as HTMLElement | null)?.closest("[data-entry-id]") ?? null;
-}
-
 export function VaultEntryList(props: Props) {
-  // ─── Drag source: sadece satır başlatır ───────────────────────────────────
+  let bodyRef: HTMLDivElement | undefined;
+
   const handleDragStart = (e: DragEvent, entry: VaultEntry) => {
     activeDragId = entry.id;
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", entry.id);
     }
+    bodyRef?.setAttribute("data-dragging", "true");
   };
 
   const handleDragEnd = () => {
@@ -52,62 +50,56 @@ export function VaultEntryList(props: Props) {
       activeDragOverRowEl.setAttribute("data-dragover", "false");
       activeDragOverRowEl = null;
     }
+    bodyRef?.removeAttribute("data-dragging");
   };
 
-  // ─── Drop target: BODY div üzerinde (draggable değil → WebKit uyumlu) ─────
-  const handleBodyDragOver = (e: DragEvent) => {
-    if (!activeDragId) return;
-    const row = closestRow(e.target);
-    if (!row) return;
-    const kind = row.getAttribute("data-entry-kind");
-    const entryId = row.getAttribute("data-entry-id");
-    if (kind !== "Directory" || entryId === activeDragId) return;
-
-    e.preventDefault(); // drop'a izin ver
+  const handleOverlayDragEnter = (e: DragEvent, entry: VaultEntry) => {
+    if (!activeDragId || activeDragId === entry.id) return;
+    e.preventDefault();
     e.stopPropagation();
-
-    if (activeDragOverRowEl !== row) {
+    const row = (e.currentTarget as HTMLElement).parentElement;
+    if (row && activeDragOverRowEl !== row) {
       activeDragOverRowEl?.setAttribute("data-dragover", "false");
       activeDragOverRowEl = row;
       row.setAttribute("data-dragover", "true");
     }
   };
 
-  const handleBodyDragLeave = (e: DragEvent) => {
-    // Body'den tamamen çıkınca highlight temizle
+  const handleOverlayDragOver = (e: DragEvent, entry: VaultEntry) => {
+    if (!activeDragId || activeDragId === entry.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleOverlayDragLeave = (e: DragEvent) => {
     const related = e.relatedTarget as Node | null;
-    if (!related || !(e.currentTarget as HTMLElement).contains(related)) {
-      activeDragOverRowEl?.setAttribute("data-dragover", "false");
-      activeDragOverRowEl = null;
+    const overlay = e.currentTarget as HTMLElement;
+    if (!related || !overlay.contains(related)) {
+      const row = overlay.parentElement;
+      row?.setAttribute("data-dragover", "false");
+      if (activeDragOverRowEl === row) activeDragOverRowEl = null;
     }
   };
 
-  const handleBodyDrop = async (e: DragEvent) => {
-    if (!activeDragId) return;
-    const row = closestRow(e.target);
-    if (!row) return;
-    const kind = row.getAttribute("data-entry-kind");
-    const targetId = row.getAttribute("data-entry-id");
-
-    if (kind !== "Directory" || !targetId || targetId === activeDragId) {
-      activeDragOverRowEl?.setAttribute("data-dragover", "false");
-      activeDragOverRowEl = null;
-      return;
-    }
-
+  const handleOverlayDrop = async (e: DragEvent, entry: VaultEntry) => {
     e.preventDefault();
     e.stopPropagation();
-    row.setAttribute("data-dragover", "false");
+    const row = (e.currentTarget as HTMLElement).parentElement;
+    row?.setAttribute("data-dragover", "false");
     activeDragOverRowEl = null;
+    bodyRef?.removeAttribute("data-dragging");
 
     const id = activeDragId;
     activeDragId = null;
 
+    if (!id || id === entry.id) return;
+
     try {
-      await api.vault.moveEntry(props.vaultId, id, targetId);
+      await api.vault.moveEntry(props.vaultId, id, entry.id);
       props.onMoved();
-    } catch {
-      // ignore
+    } catch (err) {
+      toast.error(String(err));
     }
   };
 
@@ -118,13 +110,7 @@ export function VaultEntryList(props: Props) {
         <span class={styles.colSize}>{t("vault_size")}</span>
         <span class={styles.colDate}>Tarih</span>
       </div>
-      {/* Body: draggable DEĞİL → WebKit'te drop olaylarını alır */}
-      <div
-        class={styles.body}
-        onDragOver={handleBodyDragOver}
-        onDragLeave={handleBodyDragLeave}
-        onDrop={handleBodyDrop}
-      >
+      <div class={styles.body} ref={bodyRef}>
         <For each={props.entries}>
           {(entry) => (
             <div
@@ -140,6 +126,15 @@ export function VaultEntryList(props: Props) {
               onDragStart={(e) => handleDragStart(e, entry)}
               onDragEnd={handleDragEnd}
             >
+              {entry.kind === "Directory" && (
+                <div
+                  class={styles.dropOverlay}
+                  onDragEnter={(e) => handleOverlayDragEnter(e, entry)}
+                  onDragOver={(e) => handleOverlayDragOver(e, entry)}
+                  onDragLeave={handleOverlayDragLeave}
+                  onDrop={(e) => handleOverlayDrop(e, entry)}
+                />
+              )}
               <span class={styles.colName}>
                 <span class={styles.icon}>
                   <FileIcon name={entry.name} isDir={entry.kind === "Directory"} />

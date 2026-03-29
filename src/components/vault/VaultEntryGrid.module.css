@@ -9,6 +9,7 @@
 }
 
 .cell {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -19,6 +20,19 @@
   user-select: none;
   border: 1px solid transparent;
   transition: background 0.12s, border-color 0.12s;
+}
+
+/* Klasör hücreleri için saydam drop overlay — drag sırasında aktif olur */
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.grid[data-dragging="true"] .cell[data-entry-kind="Directory"] .dropOverlay {
+  pointer-events: auto;
 }
 
 .cell:hover {

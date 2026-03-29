@@ -2,6 +2,7 @@ import { For, createSignal, onMount } from "solid-js";
 import type { VaultEntry } from "../../store/types";
 import { FileIcon, isImageFile } from "./FileIcon";
 import { api } from "../../api/tauri";
+import { toast } from "solid-sonner";
 import styles from "./VaultEntryGrid.module.css";
 
 interface Props {
@@ -41,87 +42,79 @@ function ThumbnailCell(props: { vaultId: string; entry: VaultEntry }) {
 let activeDragId: string | null = null;
 let activeDragOverEl: HTMLElement | null = null;
 
-function closestCell(el: EventTarget | null): HTMLElement | null {
-  return (el as HTMLElement | null)?.closest("[data-entry-id]") ?? null;
-}
-
 export function VaultEntryGrid(props: Props) {
+  let gridRef: HTMLDivElement | undefined;
+
   const handleDragStart = (e: DragEvent, entry: VaultEntry) => {
     activeDragId = entry.id;
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", entry.id);
     }
+    // Overlay'leri aktif et — WebKit'te draggable üzerine drop çalışmıyor,
+    // overlay (draggable değil) drop target olarak kullanılıyor.
+    gridRef?.setAttribute("data-dragging", "true");
   };
 
   const handleDragEnd = () => {
     activeDragId = null;
     activeDragOverEl?.setAttribute("data-dragover", "false");
     activeDragOverEl = null;
+    gridRef?.removeAttribute("data-dragging");
   };
 
-  const handleGridDragOver = (e: DragEvent) => {
-    if (!activeDragId) return;
-    const cell = closestCell(e.target);
-    if (!cell) return;
-    const kind = cell.getAttribute("data-entry-kind");
-    const entryId = cell.getAttribute("data-entry-id");
-    if (kind !== "Directory" || entryId === activeDragId) return;
-
+  const handleOverlayDragEnter = (e: DragEvent, entry: VaultEntry) => {
+    if (!activeDragId || activeDragId === entry.id) return;
     e.preventDefault();
     e.stopPropagation();
-
-    if (activeDragOverEl !== cell) {
+    const cell = (e.currentTarget as HTMLElement).parentElement;
+    if (cell && activeDragOverEl !== cell) {
       activeDragOverEl?.setAttribute("data-dragover", "false");
       activeDragOverEl = cell;
       cell.setAttribute("data-dragover", "true");
     }
   };
 
-  const handleGridDragLeave = (e: DragEvent) => {
+  const handleOverlayDragOver = (e: DragEvent, entry: VaultEntry) => {
+    if (!activeDragId || activeDragId === entry.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleOverlayDragLeave = (e: DragEvent) => {
     const related = e.relatedTarget as Node | null;
-    if (!related || !(e.currentTarget as HTMLElement).contains(related)) {
-      activeDragOverEl?.setAttribute("data-dragover", "false");
-      activeDragOverEl = null;
+    const overlay = e.currentTarget as HTMLElement;
+    if (!related || !overlay.contains(related)) {
+      const cell = overlay.parentElement;
+      cell?.setAttribute("data-dragover", "false");
+      if (activeDragOverEl === cell) activeDragOverEl = null;
     }
   };
 
-  const handleGridDrop = async (e: DragEvent) => {
-    if (!activeDragId) return;
-    const cell = closestCell(e.target);
-    if (!cell) return;
-    const kind = cell.getAttribute("data-entry-kind");
-    const targetId = cell.getAttribute("data-entry-id");
-
-    if (kind !== "Directory" || !targetId || targetId === activeDragId) {
-      activeDragOverEl?.setAttribute("data-dragover", "false");
-      activeDragOverEl = null;
-      return;
-    }
-
+  const handleOverlayDrop = async (e: DragEvent, entry: VaultEntry) => {
     e.preventDefault();
     e.stopPropagation();
-    cell.setAttribute("data-dragover", "false");
+    const cell = (e.currentTarget as HTMLElement).parentElement;
+    cell?.setAttribute("data-dragover", "false");
     activeDragOverEl = null;
+    gridRef?.removeAttribute("data-dragging");
 
     const id = activeDragId;
     activeDragId = null;
 
+    if (!id || id === entry.id) return;
+
     try {
-      await api.vault.moveEntry(props.vaultId, id, targetId);
+      await api.vault.moveEntry(props.vaultId, id, entry.id);
       props.onMoved();
-    } catch {
-      // ignore
+    } catch (err) {
+      toast.error(String(err));
     }
   };
 
   return (
-    <div
-      class={styles.grid}
-      onDragOver={handleGridDragOver}
-      onDragLeave={handleGridDragLeave}
-      onDrop={handleGridDrop}
-    >
+    <div class={styles.grid} ref={gridRef}>
       <For each={props.entries}>
         {(entry) => (
           <div
@@ -137,6 +130,17 @@ export function VaultEntryGrid(props: Props) {
             onDragStart={(e) => handleDragStart(e, entry)}
             onDragEnd={handleDragEnd}
           >
+            {/* Saydam overlay: sadece klasörler için, drag sırasında CSS ile aktif olur.
+                draggable değil → WebKit bu div üzerine drop'a izin verir. */}
+            {entry.kind === "Directory" && (
+              <div
+                class={styles.dropOverlay}
+                onDragEnter={(e) => handleOverlayDragEnter(e, entry)}
+                onDragOver={(e) => handleOverlayDragOver(e, entry)}
+                onDragLeave={handleOverlayDragLeave}
+                onDrop={(e) => handleOverlayDrop(e, entry)}
+              />
+            )}
             <ThumbnailCell vaultId={props.vaultId} entry={entry} />
             <span class={styles.label}>{entry.name}</span>
           </div>
