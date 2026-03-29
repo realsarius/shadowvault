@@ -9,16 +9,19 @@ import {
   TbOutlineLock,
   TbOutlineLayoutList,
   TbOutlineLayoutGrid,
+  TbOutlineLayoutColumns,
 } from "solid-icons/tb";
 import { toast } from "solid-sonner";
 import { open as dialogOpen, save as dialogSave } from "@tauri-apps/plugin-dialog";
 import { Modal } from "../ui/Modal";
 import { Button } from "../ui/Button";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { api } from "../../api/tauri";
 import { t } from "../../i18n";
 import type { VaultEntry, VaultSummary } from "../../store/types";
 import { VaultEntryList } from "./VaultEntryList";
 import { VaultEntryGrid } from "./VaultEntryGrid";
+import { VaultEntryColumns } from "./VaultEntryColumns";
 import { VaultContextMenu, type ContextMenuState } from "./VaultContextMenu";
 import { UnlockModal } from "./UnlockModal";
 import styles from "./VaultExplorer.module.css";
@@ -36,21 +39,32 @@ export function VaultExplorer(props: Props) {
   const [loading, setLoading] = createSignal(false);
   const [contextMenu, setContextMenu] = createSignal<ContextMenuState | null>(null);
 
-  // Rename modal
   const [renameTarget, setRenameTarget] = createSignal<VaultEntry | null>(null);
   const [renameName, setRenameName] = createSignal("");
   const [renameLoading, setRenameLoading] = createSignal(false);
 
-  // New folder modal
   const [newFolderOpen, setNewFolderOpen] = createSignal(false);
   const [newFolderName, setNewFolderName] = createSignal("");
   const [newFolderLoading, setNewFolderLoading] = createSignal(false);
+  const [deleteTarget, setDeleteTarget] = createSignal<VaultEntry | null>(null);
+  const [deleteLoading, setDeleteLoading] = createSignal(false);
 
-  // Unlock modal
   const [unlockTarget, setUnlockTarget] = createSignal<VaultSummary | null>(null);
 
-  // View mode: list or grid
-  const [viewMode, setViewMode] = createSignal<"list" | "grid">("list");
+  const [viewMode, setViewMode] = createSignal<"list" | "grid" | "columns">("list");
+  const [columnsReloadKey, setColumnsReloadKey] = createSignal(0);
+  const [columnsNavigateRequest, setColumnsNavigateRequest] = createSignal<{ entry: VaultEntry; requestId: number } | null>(null);
+  let columnsNavigateRequestId = 0;
+
+  let directColumnsReload: (() => void) | undefined;
+  const bumpColumnsReload = () => {
+    setColumnsReloadKey((prev) => prev + 1);
+    directColumnsReload?.();
+  };
+  const requestColumnsOpen = (entry: VaultEntry) => {
+    columnsNavigateRequestId += 1;
+    setColumnsNavigateRequest({ entry, requestId: columnsNavigateRequestId });
+  };
 
   const currentParentId = () => {
     const bc = breadcrumb();
@@ -78,6 +92,8 @@ export function VaultExplorer(props: Props) {
     } else {
       setEntries([]);
       setBreadcrumb([]);
+      setColumnsNavigateRequest(null);
+      setDeleteTarget(null);
     }
   });
 
@@ -98,10 +114,14 @@ export function VaultExplorer(props: Props) {
   };
 
   createEffect(() => {
-    // breadcrumb değişince entry'leri yenile
     void breadcrumb();
-    if (props.vault?.unlocked) loadEntries();
+    if (props.vault?.unlocked && viewMode() !== "columns") loadEntries();
   });
+
+  const handleColumnsNavigate = (crumbs: VaultEntry[]) => {
+    setBreadcrumb(crumbs);
+    setSelected(new Set<string>());
+  };
 
   const handleSelect = (id: string, multi: boolean) => {
     setSelected((prev) => {
@@ -144,24 +164,49 @@ export function VaultExplorer(props: Props) {
     }
   };
 
-  const handleDelete = async (entry: VaultEntry) => {
-    if (!confirm(t("vault_confirm_delete"))) return;
+  const handleDeleteRequest = (entry: VaultEntry) => {
+    setDeleteTarget(entry);
+  };
+
+  const handleDeleteConfirm = async () => {
+    const entry = deleteTarget();
+    if (!entry) return;
+    setDeleteLoading(true);
     try {
       await api.vault.deleteEntry(props.vault!.id, entry.id);
+      setBreadcrumb((prev) => {
+        const idx = prev.findIndex((crumb) => crumb.id === entry.id);
+        return idx >= 0 ? prev.slice(0, idx) : prev;
+      });
       await loadEntries();
+      bumpColumnsReload();
+      setDeleteTarget(null);
+      toast.success(t("vault_delete"));
     } catch (err: any) {
       toast.error(String(err));
+    } finally {
+      setDeleteLoading(false);
     }
   };
 
   const handleRename = async () => {
     const entry = renameTarget();
     if (!entry) return;
+    const nextName = renameName().trim();
+    if (!nextName) {
+      toast.error("İsim boş olamaz");
+      return;
+    }
     setRenameLoading(true);
     try {
-      await api.vault.renameEntry(props.vault!.id, entry.id, renameName());
+      await api.vault.renameEntry(props.vault!.id, entry.id, nextName);
+      setBreadcrumb((prev) => prev.map((crumb) => (
+        crumb.id === entry.id ? { ...crumb, name: nextName } : crumb
+      )));
       await loadEntries();
+      bumpColumnsReload();
       setRenameTarget(null);
+      toast.success(t("vault_rename"));
     } catch (err: any) {
       toast.error(String(err));
     } finally {
@@ -175,6 +220,7 @@ export function VaultExplorer(props: Props) {
     try {
       await api.vault.createDirectory(props.vault!.id, newFolderName().trim(), currentParentId());
       await loadEntries();
+      bumpColumnsReload();
       setNewFolderOpen(false);
       setNewFolderName("");
     } catch (err: any) {
@@ -196,26 +242,13 @@ export function VaultExplorer(props: Props) {
       }
     }
     await loadEntries();
+    bumpColumnsReload();
     toast.success(t("vault_import_file"));
   };
 
-  const handleImportFolder = async () => {
-    const dir = await dialogOpen({ directory: true });
-    if (!dir || Array.isArray(dir)) return;
-    try {
-      await api.vault.importDirectory(props.vault!.id, dir, currentParentId());
-      await loadEntries();
-      toast.success(t("vault_import_folder"));
-    } catch (err: any) {
-      toast.error(String(err));
-    }
-  };
-
-  // Drag & drop (sadece OS'tan gelen dosyalar; iç sürükleme kendi handler'ında)
   const handleDrop = async (e: DragEvent) => {
     e.preventDefault();
     const files = e.dataTransfer?.files;
-    // Dosya yoksa ya da içeride zaten işlendiyse atla
     if (!files || files.length === 0 || !props.vault?.unlocked) return;
     for (let i = 0; i < files.length; i++) {
       const f = files[i] as any;
@@ -228,6 +261,7 @@ export function VaultExplorer(props: Props) {
       }
     }
     await loadEntries();
+    bumpColumnsReload();
   };
 
   return (
@@ -236,11 +270,14 @@ export function VaultExplorer(props: Props) {
       onDragOver={(e) => e.preventDefault()}
       onDrop={handleDrop}
     >
-      {/* Toolbar */}
       <div class={styles.toolbar}>
-        {/* Breadcrumb */}
         <div class={styles.breadcrumb}>
-          <button class={styles.crumb} onClick={navigateRoot}>
+          <button
+            class={styles.crumb}
+            data-crumb-parent-id={breadcrumb().length > 0 ? "__root__" : undefined}
+            data-dragover="false"
+            onClick={navigateRoot}
+          >
             {t("vault_breadcrumb_root")}
           </button>
           <For each={breadcrumb()}>
@@ -250,6 +287,8 @@ export function VaultExplorer(props: Props) {
                 <button
                   class={styles.crumb}
                   data-active={String(i() === breadcrumb().length - 1)}
+                  data-crumb-parent-id={i() < breadcrumb().length - 1 ? crumb.id : undefined}
+                  data-dragover="false"
                   onClick={() => navigateTo(i())}
                 >
                   {crumb.name}
@@ -259,7 +298,6 @@ export function VaultExplorer(props: Props) {
           </For>
         </div>
 
-        {/* Actions */}
         <Show when={props.vault?.unlocked}>
           <div class={styles.toolbarActions}>
             <button class={styles.toolBtn} onClick={handleImportFile} title={t("vault_import_file")}>
@@ -269,7 +307,7 @@ export function VaultExplorer(props: Props) {
             <button class={styles.toolBtn} onClick={() => { setNewFolderOpen(true); setNewFolderName(""); }} title={t("vault_new_folder")}>
               <TbOutlineFolderPlus size={15} />
             </button>
-            <button class={styles.toolBtn} onClick={loadEntries} title="Yenile">
+            <button class={styles.toolBtn} onClick={() => { void loadEntries(); bumpColumnsReload(); }} title="Yenile">
               <TbOutlineRefresh size={15} />
             </button>
             <div class={styles.viewToggle}>
@@ -289,12 +327,19 @@ export function VaultExplorer(props: Props) {
               >
                 <TbOutlineLayoutGrid size={15} />
               </button>
+              <button
+                class={styles.viewBtn}
+                data-active={String(viewMode() === "columns")}
+                title="Sütun görünümü"
+                onClick={() => setViewMode("columns")}
+              >
+                <TbOutlineLayoutColumns size={15} />
+              </button>
             </div>
           </div>
         </Show>
       </div>
 
-      {/* Content */}
       <div class={styles.content}>
         <Show when={!props.vault}>
           <div class={styles.empty}>{t("vault_select_vault")}</div>
@@ -310,11 +355,27 @@ export function VaultExplorer(props: Props) {
           </div>
         </Show>
 
-        <Show when={props.vault?.unlocked && !loading() && entries().length === 0}>
+        <Show when={props.vault?.unlocked && !loading() && entries().length === 0 && viewMode() !== "columns"}>
           <div class={styles.empty}>{t("vault_empty")}</div>
         </Show>
 
-        <Show when={props.vault?.unlocked && entries().length > 0}>
+        <Show when={props.vault?.unlocked && viewMode() === "columns"}>
+          <VaultEntryColumns
+            vaultId={props.vault!.id}
+            onFileOpen={handleOpenFile}
+            onContextMenu={(e, entry) => {
+              e.preventDefault();
+              setContextMenu({ x: e.clientX, y: e.clientY, entry });
+            }}
+            onNavigate={handleColumnsNavigate}
+            reloadKey={columnsReloadKey()}
+            navigateRequest={columnsNavigateRequest()}
+            onNavigateRequestHandled={() => setColumnsNavigateRequest(null)}
+            onReady={(fn) => { directColumnsReload = fn; }}
+          />
+        </Show>
+
+        <Show when={props.vault?.unlocked && viewMode() !== "columns" && entries().length > 0}>
           {viewMode() === "grid"
             ? <VaultEntryGrid
                 vaultId={props.vault!.id}
@@ -344,18 +405,28 @@ export function VaultExplorer(props: Props) {
         </Show>
       </div>
 
-      {/* Context menu */}
       <VaultContextMenu
         menu={contextMenu()}
         onClose={() => setContextMenu(null)}
-        onOpen={handleOpenFile}
+        onOpen={(entry) => {
+          if (viewMode() === "columns") {
+            requestColumnsOpen(entry);
+            return;
+          }
+          void handleOpenFile(entry);
+        }}
         onExport={handleExport}
         onRename={(entry) => { setRenameTarget(entry); setRenameName(entry.name); }}
-        onDelete={handleDelete}
-        onNavigate={navigateInto}
+        onDelete={handleDeleteRequest}
+        onNavigate={(entry) => {
+          if (viewMode() === "columns") {
+            requestColumnsOpen(entry);
+            return;
+          }
+          navigateInto(entry);
+        }}
       />
 
-      {/* Rename modal */}
       <Modal
         open={renameTarget() !== null}
         onClose={() => setRenameTarget(null)}
@@ -384,7 +455,15 @@ export function VaultExplorer(props: Props) {
         </div>
       </Modal>
 
-      {/* New folder modal */}
+      <ConfirmDialog
+        open={deleteTarget() !== null}
+        message={deleteTarget()
+          ? `${t("vault_confirm_delete")} (${deleteTarget()!.name})`
+          : t("vault_confirm_delete")}
+        onConfirm={() => { if (!deleteLoading()) void handleDeleteConfirm(); }}
+        onCancel={() => { if (!deleteLoading()) setDeleteTarget(null); }}
+      />
+
       <Modal
         open={newFolderOpen()}
         onClose={() => setNewFolderOpen(false)}
@@ -414,7 +493,6 @@ export function VaultExplorer(props: Props) {
         </div>
       </Modal>
 
-      {/* Unlock modal */}
       <UnlockModal
         vault={unlockTarget()}
         onClose={() => setUnlockTarget(null)}

@@ -46,6 +46,13 @@
   font-weight: 500;
 }
 
+.crumb[data-dragover="true"] {
+  color: var(--text-primary);
+  background: rgba(var(--accent-rgb, 90, 144, 245), 0.15);
+  outline: 1px dashed rgba(var(--accent-rgb, 90, 144, 245), 0.6);
+  outline-offset: 1px;
+}
+
 .crumbSep {
   color: var(--text-secondary);
   opacity: 0.5;

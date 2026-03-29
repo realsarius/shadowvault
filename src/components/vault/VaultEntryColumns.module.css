@@ -1,0 +1,100 @@
+.container {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  align-items: stretch;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.column {
+  position: relative;
+  min-width: 210px;
+  width: 210px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex-shrink: 0;
+  height: 100%;
+  padding: 4px 0;
+}
+
+.column:last-child {
+  border-right: none;
+}
+
+.row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  -webkit-user-select: none;
+  user-select: none;
+  border-radius: 4px;
+  margin: 1px 4px;
+}
+
+.row:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.05));
+}
+
+.row[data-selected="true"] {
+  background: var(--accent, #5a90f5);
+  color: #fff;
+}
+
+.row[data-selected="true"] .chevron {
+  opacity: 0.8;
+  color: #fff;
+}
+
+/* Parent sütunlardaki seçili öğe — daha soluk */
+.row[data-parent-selected="true"] {
+  background: rgba(var(--accent-rgb, 90, 144, 245), 0.2);
+  color: var(--text-primary);
+}
+
+.row[data-parent-selected="true"] .chevron {
+  opacity: 0.5;
+}
+
+.row[data-dragover="true"] {
+  background: rgba(var(--accent-rgb, 90, 144, 245), 0.12);
+  outline: 1px dashed rgba(var(--accent-rgb, 90, 144, 245), 0.6);
+  outline-offset: -2px;
+}
+
+.name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.chevron {
+  flex-shrink: 0;
+  opacity: 0.4;
+  color: var(--text-secondary);
+}
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.resizeHandle:hover {
+  background: rgba(var(--accent-rgb, 90, 144, 245), 0.2);
+}

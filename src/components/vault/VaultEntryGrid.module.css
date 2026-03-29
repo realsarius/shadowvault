@@ -20,20 +20,9 @@
   user-select: none;
   border: 1px solid transparent;
   transition: background 0.12s, border-color 0.12s;
+  -webkit-user-drag: none;
 }
 
-/* Klasör hücreleri için saydam drop overlay — drag sırasında aktif olur */
-.dropOverlay {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.grid[data-dragging="true"] .cell[data-entry-kind="Directory"] .dropOverlay {
-  pointer-events: auto;
-}
 
 .cell:hover {
   background: var(--bg-hover, rgba(255,255,255,0.06));
@@ -65,6 +54,7 @@
   height: 100%;
   object-fit: cover;
   border-radius: var(--radius-sm);
+  -webkit-user-drag: none;
 }
 
 .label {

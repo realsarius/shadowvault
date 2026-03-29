@@ -36,17 +36,6 @@
   user-select: none;
 }
 
-.dropOverlay {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  border-radius: inherit;
-  pointer-events: none;
-}
-
-.body[data-dragging="true"] .row[data-entry-kind="Directory"] .dropOverlay {
-  pointer-events: auto;
-}
 
 .row:hover {
   background: var(--bg-hover, rgba(255,255,255,0.05));
