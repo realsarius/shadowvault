@@ -102,8 +102,10 @@ jobs:
             raw_type="${raw_type%%!*}"
 
             scope=""
-            if [[ "${normalized_subject}" =~ ^[a-z]+\(([^)]+)\): ]]; then
-              scope="${BASH_REMATCH[1]}"
+            prefix="${normalized_subject%%:*}"
+            if [[ "${prefix}" == *"("* ]]; then
+              scope="${prefix#*(}"
+              scope="${scope%)*}"
             fi
             scope_suffix=""
             if [[ -n "${scope}" ]]; then
