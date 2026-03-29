@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Manager, State};
 
+use crate::commands::error_contract::{command_error, CommandErrorCode};
 use crate::vault::{
     crypto::{derive_key, generate_salt},
     fs::{
@@ -46,6 +47,17 @@ fn vault_path_for(app: &tauri::AppHandle, vault_id: &str) -> Result<PathBuf, Str
 /// SessionStore'u AppState'ten al (lazy init ile manage edildi).
 fn get_session(state: &State<'_, Arc<SessionStore>>) -> Arc<SessionStore> {
     state.inner().clone()
+}
+
+fn session_lock<'a>(
+    session: &'a Arc<SessionStore>,
+) -> Result<std::sync::MutexGuard<'a, crate::vault::session::VaultSession>, String> {
+    session.0.lock().map_err(|_| {
+        command_error(
+            CommandErrorCode::IoFailure,
+            "Vault oturumu kilidi zehirlenmiş durumda.",
+        )
+    })
 }
 
 // ─── Tauri Komutları ────────────────────────────────────────────────────────
@@ -117,7 +129,10 @@ pub async fn create_vault(
 
     // Session'a ekle
     let sess = get_session(&session);
-    sess.0.lock().unwrap().unlock(&vault_id, master_key);
+    {
+        let mut guard = session_lock(&sess)?;
+        guard.unlock(&vault_id, master_key);
+    }
 
     Ok(VaultSummary {
         id: vault_id,
@@ -145,7 +160,7 @@ pub async fn list_vaults(
     .map_err(|e| e.to_string())?;
 
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
 
     let vaults = rows
         .into_iter()
@@ -185,7 +200,7 @@ pub async fn unlock_vault(
     // Meta dosyasını okuyarak salt al
     let meta_path = vault_path.join(".shadow_meta");
     if !meta_path.exists() {
-        return Err("Vault not found".to_string());
+        return Err(command_error(CommandErrorCode::NotFound, "Vault not found"));
     }
 
     // Salt için önce geçici bir anahtar türetemeyiz; salt meta içinde.
@@ -199,14 +214,27 @@ pub async fn unlock_vault(
         std::fs::read_to_string(&salt_path).map_err(|_| "Vault salt not found".to_string())?;
     let salt_bytes = hex::decode(salt_hex.trim()).map_err(|_| "Invalid vault salt".to_string())?;
 
-    let master_key = derive_key(&password, &salt_bytes).map_err(|e| e.to_string())?;
+    let master_key = derive_key(&password, &salt_bytes).map_err(|_| {
+        command_error(
+            CommandErrorCode::WrongPassword,
+            "Yanlış şifre veya bozuk kasa.",
+        )
+    })?;
 
     // Meta'yı decrypt etmeye çalış (yanlış şifre → hata)
-    VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
+    VaultMeta::load(&vault_path, &master_key).map_err(|_| {
+        command_error(
+            CommandErrorCode::WrongPassword,
+            "Yanlış şifre veya bozuk kasa.",
+        )
+    })?;
 
     // Session'a ekle — [u8;32] Copy olduğundan session kopyayı alır
     let sess = get_session(&session);
-    sess.0.lock().unwrap().unlock(&vault_id, master_key);
+    {
+        let mut guard = session_lock(&sess)?;
+        guard.unlock(&vault_id, master_key);
+    }
 
     // last_opened güncelle
     let now = Utc::now().to_rfc3339();
@@ -227,7 +255,10 @@ pub async fn lock_vault(
     vault_id: String,
 ) -> Result<(), String> {
     let sess = get_session(&session);
-    sess.0.lock().unwrap().lock(&vault_id);
+    {
+        let mut guard = session_lock(&sess)?;
+        guard.lock(&vault_id);
+    }
     Ok(())
 }
 
@@ -240,10 +271,10 @@ pub async fn list_entries(
     parent_id: Option<String>,
 ) -> Result<Vec<VaultEntry>, String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -267,10 +298,10 @@ pub async fn import_file_cmd(
     parent_id: Option<String>,
 ) -> Result<VaultEntry, String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -297,10 +328,10 @@ pub async fn import_directory_cmd(
     parent_id: Option<String>,
 ) -> Result<VaultEntry, String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -327,10 +358,10 @@ pub async fn export_file_cmd(
     dest_path: String,
 ) -> Result<(), String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -338,7 +369,7 @@ pub async fn export_file_cmd(
         .entries
         .iter()
         .find(|e| e.id == entry_id)
-        .ok_or_else(|| "Entry not found".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::NotFound, "Entry not found"))?;
 
     export_file(
         &vault_path,
@@ -359,10 +390,10 @@ pub async fn open_file_cmd(
     entry_id: String,
 ) -> Result<(), String> {
     let sess = get_session(&session);
-    let mut guard = sess.0.lock().unwrap();
+    let mut guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -371,7 +402,7 @@ pub async fn open_file_cmd(
         .iter()
         .find(|e| e.id == entry_id)
         .cloned()
-        .ok_or_else(|| "Entry not found".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::NotFound, "Entry not found"))?;
 
     let algorithm = meta.algorithm.clone();
     let tmp_path =
@@ -399,7 +430,7 @@ pub async fn get_open_files(
     vault_id: String,
 ) -> Result<Vec<OpenFileSummary>, String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let list = guard
         .get_open_files_for_vault(&vault_id)
         .into_iter()
@@ -426,7 +457,7 @@ pub async fn sync_and_lock_vault(
 
     // Açık dosyaları ve key'i al (mutex serbest bırak, I/O öncesinde)
     let (open_files, master_key) = {
-        let guard = sess.0.lock().unwrap();
+        let guard = session_lock(&sess)?;
         let key = guard.get_key(&vault_id);
         let files = guard.get_open_files_for_vault(&vault_id);
         (files, key)
@@ -455,7 +486,7 @@ pub async fn sync_and_lock_vault(
 
     // Session'dan temizle + kilitle
     {
-        let mut guard = sess.0.lock().unwrap();
+        let mut guard = session_lock(&sess)?;
         for (tmp_path, _) in &open_files {
             guard.unregister_open_file(tmp_path);
         }
@@ -475,10 +506,10 @@ pub async fn rename_entry_cmd(
     new_name: String,
 ) -> Result<(), String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -497,10 +528,10 @@ pub async fn move_entry_cmd(
     new_parent_id: Option<String>,
 ) -> Result<(), String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -518,10 +549,10 @@ pub async fn delete_entry_cmd(
     entry_id: String,
 ) -> Result<(), String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -540,10 +571,10 @@ pub async fn create_directory_cmd(
     parent_id: Option<String>,
 ) -> Result<VaultEntry, String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let mut meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -563,10 +594,10 @@ pub async fn get_thumbnail(
     entry_id: String,
 ) -> Result<String, String> {
     let sess = get_session(&session);
-    let guard = sess.0.lock().unwrap();
+    let guard = session_lock(&sess)?;
     let master_key = guard
         .get_key(&vault_id)
-        .ok_or_else(|| "Vault is locked".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::VaultLocked, "Vault is locked"))?;
 
     let vault_path = vault_path_for(&app, &vault_id)?;
     let meta = VaultMeta::load(&vault_path, &master_key).map_err(|e| e.to_string())?;
@@ -574,7 +605,7 @@ pub async fn get_thumbnail(
         .entries
         .iter()
         .find(|e| e.id == entry_id)
-        .ok_or_else(|| "Entry not found".to_string())?;
+        .ok_or_else(|| command_error(CommandErrorCode::NotFound, "Entry not found"))?;
 
     generate_thumbnail(&vault_path, entry, &master_key, &meta.algorithm).map_err(|e| e.to_string())
 }
@@ -596,12 +627,17 @@ pub async fn delete_vault(
         std::fs::read_to_string(&salt_path).map_err(|_| "Vault salt not found".to_string())?;
     let salt_bytes = hex::decode(salt_hex.trim()).map_err(|_| "Invalid vault salt".to_string())?;
 
-    let master_key = derive_key(&password, &salt_bytes).map_err(|e| e.to_string())?;
-    VaultMeta::load(&vault_path, &master_key).map_err(|_| "Wrong password".to_string())?;
+    let master_key = derive_key(&password, &salt_bytes)
+        .map_err(|_| command_error(CommandErrorCode::WrongPassword, "Wrong password"))?;
+    VaultMeta::load(&vault_path, &master_key)
+        .map_err(|_| command_error(CommandErrorCode::WrongPassword, "Wrong password"))?;
 
     // Session'dan kaldır
     let sess = get_session(&session);
-    sess.0.lock().unwrap().lock(&vault_id);
+    {
+        let mut guard = session_lock(&sess)?;
+        guard.lock(&vault_id);
+    }
 
     // Klasörü sil
     std::fs::remove_dir_all(&vault_path).map_err(|e| e.to_string())?;
@@ -643,7 +679,7 @@ pub async fn change_vault_password(
 
     // Varsa session'ı güncelle
     let sess = get_session(&session);
-    let mut guard = sess.0.lock().unwrap();
+    let mut guard = session_lock(&sess)?;
     if guard.is_unlocked(&vault_id) {
         guard.unlock(&vault_id, new_key);
     }

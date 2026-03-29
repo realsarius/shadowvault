@@ -2,6 +2,7 @@ pub mod backup_decrypt;
 pub mod cloud;
 pub mod config;
 pub mod diagnostics;
+pub mod error_contract;
 pub mod fs;
 pub mod jobs;
 pub mod license;
